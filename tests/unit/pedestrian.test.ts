@@ -8,7 +8,7 @@ const NO_WALLS = new CollisionWorld([]);
 
 describe('pedestrians', () => {
   it('walks the perimeter of its walkway and stays on it', () => {
-    const walker = new Pedestrian(WALKWAY, 0, 1.4, 0);
+    const walker = new Pedestrian(WALKWAY, 0, 1.4, 0, 30);
     for (let step = 0; step < 60 * 120; step++) {
       stepPedestrian(walker, 1 / 60, NO_WALLS);
       const onEdge =
@@ -35,7 +35,7 @@ describe('pedestrians', () => {
   });
 
   it('runs away from a threat for a few seconds, then resumes walking', () => {
-    const walker = new Pedestrian(WALKWAY, 0, 1.4, 0);
+    const walker = new Pedestrian(WALKWAY, 0, 1.4, 0, 30);
     walker.position.set(20, 0, 20);
     walker.startFleeing(18, 20);
     const start = walker.position.clone();

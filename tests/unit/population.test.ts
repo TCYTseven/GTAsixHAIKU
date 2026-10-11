@@ -12,6 +12,10 @@ const IDLE: ControlState = {
   jump: false,
   handbrake: false,
   interact: false,
+  fire: false,
+  melee: false,
+  reload: false,
+  aim: [0, 0, 1],
   cameraYaw: 0,
 };
 

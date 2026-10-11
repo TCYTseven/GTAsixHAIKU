@@ -20,8 +20,9 @@ export class Pedestrian extends Entity {
   fleeX = 0;
   fleeZ = 0;
 
-  constructor(walkway: Rect, progress: number, speed: number, variant: number) {
+  constructor(walkway: Rect, progress: number, speed: number, variant: number, health: number) {
     super();
+    this.health = health;
     this.walkway = walkway;
     this.perimeter = 2 * (walkway.maxX - walkway.minX + walkway.maxZ - walkway.minZ);
     this.progress = progress;

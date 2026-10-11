@@ -58,6 +58,7 @@ const PEDESTRIAN_PALETTES: readonly FigurePalette[] = [
 export interface PlayHud {
   readonly speedometer: HTMLElement;
   readonly prompt: HTMLElement;
+  readonly status: HTMLElement;
 }
 
 interface DrawableChunk {
@@ -128,6 +129,10 @@ export class PlayScene implements Scene {
       jump: this.input.consumePress('Space'),
       handbrake: this.input.isHeld('Space'),
       interact: this.input.consumePress('KeyF'),
+      fire: this.input.isButtonHeld(0),
+      melee: this.input.consumePress('KeyQ'),
+      reload: this.input.consumePress('KeyR'),
+      aim: this.camera.forward(this.viewForward).toTuple(),
       cameraYaw: this.camera.yaw,
     };
     this.world.setViewer(this.camera.eye, this.camera.forward(this.viewForward));
@@ -182,6 +187,10 @@ export class PlayScene implements Scene {
     }
 
     this.updateHud(car?.speedKmh ?? 0, car?.forwardSpeed ?? 0);
+    const w = this.world;
+    this.hud.status.textContent = w.player.alive
+      ? `HP ${Math.ceil(w.player.health)}  ${w.cash}  ${w.ammo}/${w.reserve}`
+      : 'WASTED';
     const fps = Math.round(this.fps.tick(frameSeconds));
     this.label.textContent =
       `${fps} FPS | ${this.renderer.stats.drawCalls} draws | ` +

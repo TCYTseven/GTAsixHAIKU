@@ -17,6 +17,22 @@ import type { CollisionWorld } from '../world/collision-world';
 import type { RoadEdge } from '../world/road-graph';
 import { SolidSet } from '../world/solids';
 import type { GameEvents } from './events';
+import { fireHitscan, meleeTargets } from '../systems/combat';
+
+export interface Pickup {
+  readonly position: Vec3;
+  readonly kind: 'cash';
+  readonly amount: number;
+}
+
+const PICKUP_RANGE = 1.5;
+const PICKUP_COUNT = 14;
+const PICKUP_CASH = 50;
+const CAR_STRIKE_SPEED = 6;
+const WALKER_MARGIN = 0.4;
+const HOSPITAL_BLOCK = { col: 12, row: 4 };
+const FULL_HEALTH = 100;
+const MAGAZINE_FULL = 12;
 
 const ENTER_RANGE = 4;
 const EXIT_SIDE_CLEARANCE = 0.9;
@@ -54,6 +70,16 @@ export class World {
   /** Blocks and lanes inside the spawn band around the viewer, refreshed on each population tick. */
   private nearbyBlocks: CityLayout['blocks'][number][] = [];
   private nearbyEdges: RoadEdge[] = [];
+  /** Cash on hand, in dollars. */
+  cash: number;
+  ammo = MAGAZINE_FULL;
+  reserve: number;
+  readonly pickups: Pickup[] = [];
+  readonly hospital: Vec3;
+  private fireCooldown = 0;
+  private meleeCooldown = 0;
+  private reloadTimer = 0;
+  private respawnTimer = 0;
 
   constructor(config: GameConfig) {
     this.config = config;
@@ -71,6 +97,21 @@ export class World {
       createRng(PARKING_SEED),
     );
     this.viewer.copy(spawn);
+    this.cash = config.weapons.startingCash;
+    this.reserve = config.weapons.pistol.reserveAmmo;
+    this.ammo = config.weapons.pistol.magazine;
+    for (let i = 0; i < PICKUP_COUNT; i++) {
+      const block = this.rng.pick(this.layout.blocks);
+      const perimeter =
+        2 * (block.walkway.maxX - block.walkway.minX + block.walkway.maxZ - block.walkway.minZ);
+      const position = perimeterPoint(block.walkway, this.rng.range(0, perimeter), new Vec3());
+      this.pickups.push({ position, kind: 'cash', amount: PICKUP_CASH });
+    }
+    const hospitalBlock =
+      this.layout.blocks.find(
+        (block) => block.col === HOSPITAL_BLOCK.col && block.row === HOSPITAL_BLOCK.row,
+      ) ?? this.layout.blocks[0];
+    this.hospital = perimeterPoint(hospitalBlock.walkway, 0, new Vec3());
   }
 
   /** Where the camera is and which way it faces. Spawning keeps people out of its view. */
@@ -86,7 +127,7 @@ export class World {
     for (const vehicle of this.vehicles) {
       vehicle.beginStep();
     }
-    if (controls.interact) {
+    if (controls.interact && this.player.alive) {
       this.toggleVehicle();
     }
 
@@ -104,6 +145,7 @@ export class World {
       }
     }
     this.updatePedestrians(dt);
+    this.updateCombat(controls, dt);
 
     const driven = this.player.vehicle;
     this.solids.setMoving(this.vehicles.filter((v) => v !== driven).map((v) => v.bounds()));
@@ -121,11 +163,184 @@ export class World {
         this.impacts,
       );
       this.player.position.copy(driven.position);
-    } else {
+    } else if (this.player.alive) {
       stepOnFoot(this.player, controls, dt, this.solids);
     }
     this.publishImpacts();
+    this.updateSurvival(dt);
     this.maintainPopulation(dt);
+  }
+
+  /** Shots and melee, car strikes on people, and cash pickups for one step. */
+  private updateCombat(controls: ControlState, dt: number): void {
+    const weapons = this.config.weapons;
+    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    this.meleeCooldown = Math.max(0, this.meleeCooldown - dt);
+    this.reloadTimer = Math.max(0, this.reloadTimer - dt);
+    if (this.player.alive && !this.player.vehicle) {
+      if (controls.reload) {
+        this.startReload();
+      }
+      if (controls.melee && this.meleeCooldown <= 0) {
+        this.meleeCooldown = weapons.melee.cooldown;
+        for (const walker of meleeTargets(
+          this.player.position,
+          this.player.heading,
+          weapons.melee,
+          this.pedestrians,
+        )) {
+          this.hurtPedestrian(walker, weapons.melee.damage, 'melee');
+        }
+      }
+      if (controls.fire && this.fireCooldown <= 0 && this.reloadTimer <= 0) {
+        this.shoot(controls.aim);
+      }
+    }
+    this.strikeWithCars();
+    this.collectPickups();
+    this.pruneDeadPedestrians();
+  }
+
+  private shoot(aim: readonly [number, number, number]): void {
+    const pistol = this.config.weapons.pistol;
+    if (this.ammo <= 0) {
+      this.startReload();
+      return;
+    }
+    this.ammo -= 1;
+    this.fireCooldown = 1 / pistol.fireRate;
+    const origin = new Vec3(
+      this.player.position.x,
+      this.player.position.y + 1.5,
+      this.player.position.z,
+    );
+    const direction = new Vec3(aim[0], aim[1], aim[2]).normalize();
+    const shot = fireHitscan(
+      origin,
+      direction,
+      pistol,
+      this.collision,
+      this.pedestrians,
+      this.vehicles,
+      null,
+    );
+    const near = this.pedestrians.some(
+      (walker) =>
+        walker.alive && Math.hypot(walker.position.x - origin.x, walker.position.z - origin.z) < 30,
+    );
+    this.events.emit('shotFired', { near });
+    if (shot.target instanceof Pedestrian && shot.target.health <= 0) {
+      this.killPedestrian(shot.target, 'gunfire');
+    }
+  }
+
+  private startReload(): void {
+    const pistol = this.config.weapons.pistol;
+    if (this.reloadTimer > 0 || this.ammo >= pistol.magazine || this.reserve <= 0) {
+      return;
+    }
+    const take = Math.min(pistol.magazine - this.ammo, this.reserve);
+    this.ammo += take;
+    this.reserve -= take;
+    this.reloadTimer = pistol.reloadTime;
+  }
+
+  private hurtPedestrian(walker: Pedestrian, damage: number, cause: 'melee'): void {
+    walker.health -= damage;
+    walker.startFleeing(this.player.position.x, this.player.position.z);
+    if (walker.health <= 0) {
+      this.killPedestrian(walker, cause);
+    }
+  }
+
+  private killPedestrian(walker: Pedestrian, cause: 'melee' | 'gunfire' | 'vehicle'): void {
+    if (!walker.alive) {
+      return;
+    }
+    walker.alive = false;
+    this.events.emit('pedestrianKilled', { pedestrian: walker, cause });
+  }
+
+  /** Any car moving fast enough knocks down people it reaches. */
+  private strikeWithCars(): void {
+    for (const car of this.vehicles) {
+      if (Math.abs(car.forwardSpeed) < CAR_STRIKE_SPEED) {
+        continue;
+      }
+      const fx = Math.sin(car.heading);
+      const fz = Math.cos(car.heading);
+      for (const walker of this.pedestrians) {
+        if (!walker.alive) {
+          continue;
+        }
+        const dx = walker.position.x - car.position.x;
+        const dz = walker.position.z - car.position.z;
+        const localRight = -fz * dx + fx * dz;
+        const localForward = fx * dx + fz * dz;
+        if (
+          Math.abs(localRight) <= car.halfWidth + WALKER_MARGIN &&
+          Math.abs(localForward) <= car.halfLength + WALKER_MARGIN
+        ) {
+          walker.health = 0;
+          this.killPedestrian(walker, 'vehicle');
+        }
+      }
+    }
+  }
+
+  private collectPickups(): void {
+    for (let i = this.pickups.length - 1; i >= 0; i--) {
+      const pickup = this.pickups[i];
+      const distance = Math.hypot(
+        pickup.position.x - this.player.position.x,
+        pickup.position.z - this.player.position.z,
+      );
+      if (distance <= PICKUP_RANGE) {
+        this.cash += pickup.amount;
+        this.pickups.splice(i, 1);
+      }
+    }
+  }
+
+  private pruneDeadPedestrians(): void {
+    for (let i = this.pedestrians.length - 1; i >= 0; i--) {
+      if (!this.pedestrians[i].alive) {
+        this.pedestrians.splice(i, 1);
+      }
+    }
+  }
+
+  /** Death costs cash and a short wait, then the player wakes up at the hospital. */
+  private updateSurvival(dt: number): void {
+    const player = this.player;
+    if (player.alive && player.health <= 0) {
+      player.alive = false;
+      this.respawnTimer = this.config.weapons.respawnDelay;
+      if (player.vehicle) {
+        player.vehicle.occupied = false;
+        player.vehicle.velocity.set(0, 0, 0);
+        player.vehicle = null;
+      }
+      this.events.emit('playerDied', {});
+    }
+    if (!player.alive) {
+      this.respawnTimer -= dt;
+      if (this.respawnTimer <= 0) {
+        this.respawn();
+      }
+    }
+  }
+
+  private respawn(): void {
+    const player = this.player;
+    this.cash = Math.floor(this.cash * (1 - this.config.weapons.deathCashPenalty));
+    player.position.copy(this.hospital);
+    player.previousPosition.copy(this.hospital);
+    player.velocity.set(0, 0, 0);
+    player.grounded = true;
+    player.health = FULL_HEALTH;
+    player.alive = true;
+    this.events.emit('playerRespawned', {});
   }
 
   /** The nearest parked car the player could climb into right now, or null. */
@@ -325,7 +540,13 @@ export class World {
     }
     const variant = this.rng.int(0, PEDESTRIAN_VARIANTS - 1);
     this.pedestrians.push(
-      new Pedestrian(block.walkway, progress, this.config.population.pedestrianSpeed, variant),
+      new Pedestrian(
+        block.walkway,
+        progress,
+        this.config.population.pedestrianSpeed,
+        variant,
+        this.config.population.pedestrianHealth,
+      ),
     );
   }
 

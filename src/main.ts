@@ -9,12 +9,14 @@ const canvas = document.getElementById('game-canvas');
 const fpsLabel = document.getElementById('fps-counter');
 const speedometer = document.getElementById('speedometer');
 const prompt = document.getElementById('prompt');
+const status = document.getElementById('status');
 const fatalError = document.getElementById('fatal-error');
 if (
   !(canvas instanceof HTMLCanvasElement) ||
   !(fpsLabel instanceof HTMLElement) ||
   !(speedometer instanceof HTMLElement) ||
   !(prompt instanceof HTMLElement) ||
+  !(status instanceof HTMLElement) ||
   !(fatalError instanceof HTMLElement)
 ) {
   throw new Error('index.html is missing one of the required elements.');
@@ -30,7 +32,7 @@ try {
   } else if (sceneName === 'fly') {
     scene = new CityScene(canvas, fpsLabel, config.city);
   } else {
-    scene = new PlayScene(canvas, fpsLabel, { speedometer, prompt }, config);
+    scene = new PlayScene(canvas, fpsLabel, { speedometer, prompt, status }, config);
   }
 
   const game = new Game();
