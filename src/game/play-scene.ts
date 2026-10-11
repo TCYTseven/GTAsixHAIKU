@@ -20,6 +20,7 @@ import { FollowCamera, type OrbitShot } from './follow-camera';
 import { World } from './world';
 import { drawMinimap, MINIMAP_SIZE, type MinimapBlip } from '../ui/minimap';
 import { Menus } from '../ui/menus';
+import { Sfx } from '../audio/sfx';
 
 const LOOK_RADIANS_PER_PIXEL = 0.0022;
 const FIGURE_PALETTE: FigurePalette = {
@@ -86,6 +87,8 @@ export class PlayScene implements Scene {
   private readonly model: Mat4 = createMat4();
   private readonly focus = new Vec3();
   private paused = true;
+  private readonly sfx = new Sfx();
+  private sirenOn = false;
   private readonly menus: Menus;
   private readonly minimapCanvas: HTMLCanvasElement;
   private readonly minimapContext: CanvasRenderingContext2D;
@@ -118,7 +121,10 @@ export class PlayScene implements Scene {
       this.walkerMeshes.push(new Mesh(this.gl, buildFigureMesh(palette)));
     }
     this.menus = new Menus({
-      onStart: () => this.setPaused(false),
+      onStart: () => {
+        this.sfx.unlock();
+        this.setPaused(false);
+      },
       onResume: () => this.setPaused(false),
     });
     this.minimapCanvas = document.createElement('canvas');
@@ -134,6 +140,8 @@ export class PlayScene implements Scene {
     this.toastLabel.id = 'toast';
     this.toastLabel.hidden = true;
     document.body.append(this.minimapCanvas, this.objectiveLabel, this.toastLabel);
+    this.world.events.on('shotFired', () => this.sfx.gunshot());
+    this.world.events.on('vehicleImpact', ({ speed }) => this.sfx.impact(speed / 20));
     this.world.events.on('missionCompleted', ({ title, reward }) => {
       this.toastLabel.textContent = `${title} complete: +${reward}`;
       this.toastLabel.hidden = false;
@@ -225,6 +233,12 @@ export class PlayScene implements Scene {
     }
 
     this.updateMinimap(frameSeconds);
+    this.sfx.setEngine(car ? car.speedKmh : null);
+    const siren = this.world.wanted.level > 0;
+    if (siren !== this.sirenOn) {
+      this.sirenOn = siren;
+      this.sfx.setSiren(siren);
+    }
     this.updateObjective();
     this.updateHud(car?.speedKmh ?? 0, car?.forwardSpeed ?? 0);
     const w = this.world;
