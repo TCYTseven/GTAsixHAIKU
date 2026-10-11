@@ -1,7 +1,9 @@
 import { createMat4, mat4Invert, type Mat4 } from '../math/mat4';
+import type { Vec3 } from '../math/vec3';
 import { WHITE, type Rgb } from './color';
 import type { Camera } from './camera';
 import type { Environment } from './environment';
+import { Frustum } from './frustum';
 import type { Mesh } from './mesh';
 import { ShaderProgram } from './shader-program';
 import { LIT_FRAGMENT_SHADER, LIT_VERTEX_SHADER } from './shaders/lit-shader';
@@ -19,6 +21,7 @@ export class Renderer {
   private readonly sky: ShaderProgram;
   private readonly emptyVao: WebGLVertexArrayObject;
   private readonly inverseViewProjection: Mat4 = createMat4();
+  private readonly frustum = new Frustum();
   private readonly eye = [0, 0, 0];
   private environment: Environment | null = null;
 
@@ -36,7 +39,7 @@ export class Renderer {
     gl.frontFace(gl.CCW);
   }
 
-  /** Clears the frame and uploads camera and lighting uniforms. */
+  /** Clears the frame, updates the view frustum, and uploads camera and lighting uniforms. */
   beginFrame(camera: Camera, environment: Environment): void {
     const gl = this.gl;
     this.stats.drawCalls = 0;
@@ -52,6 +55,7 @@ export class Renderer {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     mat4Invert(this.inverseViewProjection, camera.viewProjection);
+    this.frustum.setFromViewProjection(camera.viewProjection);
 
     this.lit.use();
     this.lit.setMat4('uViewProj', camera.viewProjection);
@@ -98,6 +102,11 @@ export class Renderer {
     this.gl.drawElements(this.gl.TRIANGLES, mesh.indexCount, this.gl.UNSIGNED_INT, 0);
     this.stats.drawCalls += 1;
     this.stats.triangles += mesh.indexCount / 3;
+  }
+
+  /** True when a world-space bounding sphere touches the view frustum from the last `beginFrame`. */
+  isSphereVisible(center: Vec3, radius: number): boolean {
+    return this.frustum.intersectsSphere(center.x, center.y, center.z, radius);
   }
 
   private requireEnvironment(): Environment {
