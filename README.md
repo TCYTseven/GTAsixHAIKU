@@ -28,6 +28,19 @@ Then open the URL that Vite prints.
 | `npm run lint`         | Runs ESLint                                      |
 | `npm run format:check` | Checks Prettier formatting                       |
 
+## Controls (sandbox)
+
+The current scene is a test field for the renderer and camera. Gameplay controls arrive with later milestones and are listed in section 9 of the build plan.
+
+| Input | Action |
+| --- | --- |
+| W, A, S, D | Move |
+| Space, Left Ctrl | Rise, descend |
+| Left Shift | Move faster |
+| Click the canvas | Capture the mouse for look |
+| Mouse (captured) | Look around |
+| Esc | Release the mouse |
+
 ## Project layout
 
 Source lives in `src/`, organized by layer as described in section 4 of the build plan. Unit tests mirror that layout under `tests/unit/`.
