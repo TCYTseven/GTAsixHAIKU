@@ -10,6 +10,7 @@ export interface GameEvents {
   pedestrianKilled: { pedestrian: Pedestrian; cause: 'melee' | 'gunfire' | 'vehicle' };
   /** The player shot at something. `near` is true when a pedestrian or police car was close. */
   shotFired: { near: boolean };
+  missionCompleted: { title: string; reward: number };
   playerDied: Record<string, never>;
   playerRespawned: Record<string, never>;
 }

@@ -157,3 +157,44 @@ export const WeaponsConfigSchema = z.object({
 });
 
 export type WeaponsConfig = z.infer<typeof WeaponsConfigSchema>;
+
+export const MarkerSchema = z.object({
+  block: z.tuple([z.number().int().min(0).max(39), z.number().int().min(0).max(39)]),
+  corner: z.enum(['nw', 'ne', 'sw', 'se']),
+});
+
+export const MissionStepSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('goTo'),
+    marker: MarkerSchema,
+    radius: z.number().positive(),
+    text: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('driveTo'),
+    marker: MarkerSchema,
+    radius: z.number().positive(),
+    text: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal('eliminate'),
+    count: z.number().int().positive(),
+    text: z.string().min(1),
+  }),
+]);
+
+export const MissionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  start: MarkerSchema,
+  reward: z.number().positive(),
+  steps: z.array(MissionStepSchema).min(1),
+});
+
+export type MissionConfig = z.infer<typeof MissionSchema>;
+
+export const MissionsConfigSchema = z.object({
+  missions: z.array(MissionSchema).min(1),
+});
+
+export type MissionsConfig = z.infer<typeof MissionsConfigSchema>;

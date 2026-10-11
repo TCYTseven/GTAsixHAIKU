@@ -2,12 +2,15 @@ import type { z } from 'zod';
 import { DEFAULT_CITY_CONFIG } from './city.config';
 import { DEFAULT_PLAYER_CONFIG } from './player.config';
 import { DEFAULT_POPULATION_CONFIG } from './population.config';
+import { DEFAULT_MISSIONS_CONFIG } from './missions.config';
 import {
   CityConfigSchema,
   PlayerConfigSchema,
   PopulationConfigSchema,
   VehiclesConfigSchema,
   WeaponsConfigSchema,
+  MissionsConfigSchema,
+  type MissionsConfig,
   type CityConfig,
   type PlayerConfig,
   type PopulationConfig,
@@ -23,6 +26,7 @@ export interface GameConfig {
   readonly vehicles: VehiclesConfig;
   readonly population: PopulationConfig;
   readonly weapons: WeaponsConfig;
+  readonly missions: MissionsConfig;
 }
 
 /** Thrown when configuration fails validation. The message lists every problem found. */
@@ -45,6 +49,7 @@ export function loadGameConfig(): GameConfig {
       DEFAULT_POPULATION_CONFIG,
     ),
     weapons: parseConfig('weapons.config.ts', WeaponsConfigSchema, DEFAULT_WEAPONS_CONFIG),
+    missions: parseConfig('missions.config.ts', MissionsConfigSchema, DEFAULT_MISSIONS_CONFIG),
   };
 }
 
