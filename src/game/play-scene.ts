@@ -27,6 +27,32 @@ const FIGURE_PALETTE: FigurePalette = {
   accent: [0.05, 0.05, 0.06],
 };
 const REVERSING_SPEED = -0.5;
+const PEDESTRIAN_PALETTES: readonly FigurePalette[] = [
+  {
+    jacket: [0.7, 0.2, 0.2],
+    pants: [0.2, 0.2, 0.25],
+    skin: [0.86, 0.68, 0.52],
+    accent: [0.05, 0.05, 0.06],
+  },
+  {
+    jacket: [0.9, 0.8, 0.3],
+    pants: [0.25, 0.25, 0.3],
+    skin: [0.6, 0.42, 0.3],
+    accent: [0.05, 0.05, 0.06],
+  },
+  {
+    jacket: [0.3, 0.6, 0.35],
+    pants: [0.15, 0.15, 0.2],
+    skin: [0.9, 0.75, 0.6],
+    accent: [0.05, 0.05, 0.06],
+  },
+  {
+    jacket: [0.55, 0.55, 0.6],
+    pants: [0.1, 0.1, 0.12],
+    skin: [0.75, 0.55, 0.4],
+    accent: [0.05, 0.05, 0.06],
+  },
+];
 
 /** DOM readouts the play scene keeps up to date. */
 export interface PlayHud {
@@ -56,6 +82,8 @@ export class PlayScene implements Scene {
   private readonly identity: Mat4 = mat4FromTransform(createMat4(), 0, 0, 0, 0);
   private readonly model: Mat4 = createMat4();
   private readonly focus = new Vec3();
+  private readonly viewForward = new Vec3();
+  private readonly walkerMeshes: Mesh[] = [];
   private readonly carPosition = new Vec3();
 
   constructor(
@@ -75,6 +103,9 @@ export class PlayScene implements Scene {
       mesh: new Mesh(this.gl, chunk.mesh),
     }));
     this.figure = new Mesh(this.gl, buildFigureMesh(FIGURE_PALETTE));
+    for (const palette of PEDESTRIAN_PALETTES) {
+      this.walkerMeshes.push(new Mesh(this.gl, buildFigureMesh(palette)));
+    }
     for (const type of config.vehicles.types) {
       const data = buildVehicleMesh(type.length, type.width, type.height);
       this.vehicleMeshes.set(type.id, new Mesh(this.gl, data));
@@ -99,6 +130,7 @@ export class PlayScene implements Scene {
       interact: this.input.consumePress('KeyF'),
       cameraYaw: this.camera.yaw,
     };
+    this.world.setViewer(this.camera.eye, this.camera.forward(this.viewForward));
     this.world.step(dt, controls);
   }
 
@@ -142,6 +174,7 @@ export class PlayScene implements Scene {
       }
     }
     this.drawVehicles(alpha);
+    this.drawPedestrians(alpha);
     if (!car) {
       const player = this.world.player;
       mat4FromTransform(this.model, this.focus.x, this.focus.y, this.focus.z, player.heading);
@@ -153,6 +186,24 @@ export class PlayScene implements Scene {
     this.label.textContent =
       `${fps} FPS | ${this.renderer.stats.drawCalls} draws | ` +
       `${visible}/${this.chunks.length} chunks`;
+  }
+
+  private drawPedestrians(alpha: number): void {
+    for (const walker of this.world.pedestrians) {
+      walker.interpolatedPosition(alpha, this.carPosition);
+      if (!this.renderer.isSphereVisible(this.carPosition, 1)) {
+        continue;
+      }
+      const mesh = this.walkerMeshes[walker.variant % this.walkerMeshes.length];
+      mat4FromTransform(
+        this.model,
+        this.carPosition.x,
+        this.carPosition.y,
+        this.carPosition.z,
+        walker.heading,
+      );
+      this.renderer.drawMesh(mesh, this.model);
+    }
   }
 
   private drawVehicles(alpha: number): void {
