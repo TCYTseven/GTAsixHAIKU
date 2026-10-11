@@ -32,3 +32,34 @@ export const CityConfigSchema = z
   });
 
 export type CityConfig = z.infer<typeof CityConfigSchema>;
+
+export const PlayerConfigSchema = z
+  .object({
+    halfWidth: z.number().min(0.2).max(0.6),
+    height: z.number().min(1.4).max(2.2),
+    walkSpeed: z.number().positive().max(12),
+    sprintSpeed: z.number().positive().max(20),
+    acceleration: z.number().positive(),
+    airAcceleration: z.number().positive(),
+    /** Radians per second the body turns toward its movement direction. */
+    turnRate: z.number().positive(),
+    jumpSpeed: z.number().positive(),
+    gravity: z.number().positive(),
+    /** Tallest ledge walked over without jumping. */
+    stepHeight: z.number().min(0.05).max(0.4),
+    maxFallSpeed: z.number().positive(),
+    cameraDistance: z.number().min(1).max(20),
+    cameraHeight: z.number().min(0).max(3),
+    cameraMinPitch: z.number().min(-1.5).max(0),
+    cameraMaxPitch: z.number().min(0).max(1.5),
+  })
+  .refine((player) => player.sprintSpeed >= player.walkSpeed, {
+    message: 'sprintSpeed must be at least walkSpeed',
+    path: ['sprintSpeed'],
+  })
+  .refine((player) => player.cameraMaxPitch > player.cameraMinPitch, {
+    message: 'cameraMaxPitch must be greater than cameraMinPitch',
+    path: ['cameraMaxPitch'],
+  });
+
+export type PlayerConfig = z.infer<typeof PlayerConfigSchema>;
