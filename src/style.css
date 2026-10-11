@@ -138,6 +138,18 @@ body {
   pointer-events: none;
 }
 
+#minimap {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 180px;
+  height: 180px;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(5, 8, 12, 0.6);
+  pointer-events: none;
+}
+
 #toast {
   position: fixed;
   top: 40%;
