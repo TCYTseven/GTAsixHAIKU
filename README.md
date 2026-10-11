@@ -30,21 +30,33 @@ Then open the URL that Vite prints.
 
 ## Scenes
 
-- `index.html` (default): a fly-through of the generated city. The layout comes from the seed in `src/data/city.config.ts`, so the same seed always builds the same city.
-- `index.html?scene=sandbox`: the renderer test field from M1. It is not part of normal play.
+- `index.html` (default): walk the generated city. The layout comes from the seed in `src/data/city.config.ts`, so the same seed always builds the same city. Player tuning lives in `src/data/player.config.ts`.
+- `index.html?scene=fly`: a free-fly camera over the city, for checking the layout.
+- `index.html?scene=sandbox`: the renderer test field from M1.
 
 ## Controls
 
-Click the canvas to capture the mouse. Gameplay controls arrive with later milestones and are listed in section 9 of the build plan.
+Click the canvas to capture the mouse. Gameplay controls for driving, combat, and missions arrive with later milestones and are listed in section 9 of the build plan.
 
-| Input            | Action                     |
-| ---------------- | -------------------------- |
-| W, A, S, D       | Move                       |
-| Space, Left Ctrl | Rise, descend              |
-| Left Shift       | Move faster                |
-| Click the canvas | Capture the mouse for look |
-| Mouse (captured) | Look around                |
-| Esc              | Release the mouse          |
+On foot:
+
+| Input            | Action                       |
+| ---------------- | ---------------------------- |
+| W, A, S, D       | Walk, relative to the camera |
+| Left Shift       | Sprint                       |
+| Space            | Jump                         |
+| Click the canvas | Capture the mouse            |
+| Mouse (captured) | Orbit the camera             |
+| Esc              | Release the mouse            |
+
+Free-fly scenes (`?scene=fly` and `?scene=sandbox`):
+
+| Input            | Action        |
+| ---------------- | ------------- |
+| W, A, S, D       | Move          |
+| Space, Left Ctrl | Rise, descend |
+| Left Shift       | Move faster   |
+| Mouse (captured) | Look around   |
 
 ## Project layout
 

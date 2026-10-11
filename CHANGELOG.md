@@ -2,6 +2,16 @@
 
 Notable changes, one section per milestone in [BUILD_PLAN.md](BUILD_PLAN.md). Each milestone is tagged in git (`m0-scaffold`, `m1-renderer`, and so on).
 
+## M3: On-foot movement
+
+- Box-shaped body physics: X then Z motion, step-up onto ledges up to 0.4 m when grounded, gravity, and a ground probe that snaps the body onto support within the step height.
+- Player controller with camera-relative walking, sprint, turning toward the movement direction, and jumping.
+- Collision index on a 10 m grid, with box queries and an Amanatides and Woo raycast. The city's pads, buildings, and invisible perimeter walls are colliders.
+- Third-person orbit camera. It pulls in quickly when a building is between the player and the camera, and eases back out.
+- Player tuning in a Zod-validated config file.
+- The city walk is now the default scene, and the fly-through moves to `?scene=fly`.
+- Tests cover ray and box intersection, grid queries, body physics (walls, ledges, jumps, landings, curbs), a random 30-second walk that must never end inside a collider, and camera wall avoidance.
+
 ## M2: City generation
 
 - Seeded city of 16 by 16 blocks (about 960 m square). Streets run 60 m apart, with two lanes each way and raised sidewalks.
