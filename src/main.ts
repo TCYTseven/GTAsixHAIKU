@@ -2,6 +2,7 @@ import './style.css';
 import { loadGameConfig } from './data/load-config';
 import { CityScene } from './game/city-scene';
 import { Game } from './game/game';
+import { PlayScene } from './game/play-scene';
 import { SandboxScene } from './game/sandbox-scene';
 
 const canvas = document.getElementById('game-canvas');
@@ -17,11 +18,16 @@ if (
 
 try {
   const config = loadGameConfig();
-  // `?scene=sandbox` opens the renderer test field instead of the city.
-  const wantsSandbox = new URLSearchParams(window.location.search).get('scene') === 'sandbox';
-  const scene = wantsSandbox
-    ? new SandboxScene(canvas, fpsLabel)
-    : new CityScene(canvas, fpsLabel, config.city);
+  // `?scene=fly` opens the free-fly city view, and `?scene=sandbox` opens the renderer test field.
+  const sceneName = new URLSearchParams(window.location.search).get('scene');
+  let scene;
+  if (sceneName === 'sandbox') {
+    scene = new SandboxScene(canvas, fpsLabel);
+  } else if (sceneName === 'fly') {
+    scene = new CityScene(canvas, fpsLabel, config.city);
+  } else {
+    scene = new PlayScene(canvas, fpsLabel, config);
+  }
 
   const game = new Game();
   game.setScene(scene);

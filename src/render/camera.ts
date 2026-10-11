@@ -37,6 +37,19 @@ export class Camera {
       lerp(this.previousPosition.y, this.position.y, alpha),
       lerp(this.previousPosition.z, this.position.z, alpha),
     );
+    this.buildMatrices(aspect);
+  }
+
+  /**
+   * Puts the eye at an explicit point, for follow cameras. The look direction still comes from yaw
+   * and pitch.
+   */
+  lookFrom(eye: Vec3, aspect: number): void {
+    this.eye.copy(eye);
+    this.buildMatrices(aspect);
+  }
+
+  private buildMatrices(aspect: number): void {
     this.forward(scratchForward);
     scratchTarget.copy(this.eye).add(scratchForward);
     mat4LookAt(this.view, this.eye, scratchTarget, WORLD_UP);
