@@ -113,3 +113,23 @@ export const VehiclesConfigSchema = z.object({
 });
 
 export type VehiclesConfig = z.infer<typeof VehiclesConfigSchema>;
+
+export const PopulationConfigSchema = z
+  .object({
+    pedestrians: z.number().int().min(0).max(300),
+    traffic: z.number().int().min(0).max(120),
+    /** Nothing spawns closer than this to the player. */
+    spawnMinDistance: z.number().positive(),
+    /** Anything farther than this is removed. */
+    despawnDistance: z.number().positive(),
+    pedestrianSpeed: z.number().positive().max(5),
+    pedestrianHealth: z.number().positive(),
+    /** Fraction of a car's top speed that traffic cruises at. */
+    trafficSpeedFactor: z.number().positive().max(1),
+  })
+  .refine((population) => population.despawnDistance > population.spawnMinDistance, {
+    message: 'despawnDistance must be greater than spawnMinDistance',
+    path: ['despawnDistance'],
+  });
+
+export type PopulationConfig = z.infer<typeof PopulationConfigSchema>;

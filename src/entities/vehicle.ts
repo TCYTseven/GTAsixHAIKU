@@ -11,6 +11,7 @@ import { approach, clamp, DEG_TO_RAD, damp, wrapAngle } from '../math/util';
 import type { Vec3 } from '../math/vec3';
 import type { Rgb } from '../render/color';
 import type { CollisionWorld } from '../world/collision-world';
+import type { RoadEdge } from '../world/road-graph';
 import { Entity } from './entity';
 
 const STEER_RESPONSE = 3.5;
@@ -34,6 +35,11 @@ export interface VehicleInput {
   readonly handbrake: boolean;
 }
 
+/** A traffic car's current lane. Cars with a route drive themselves. */
+export interface TrafficRoute {
+  edge: RoadEdge;
+}
+
 export interface ImpactReport {
   readonly vehicle: Vehicle;
   readonly speed: number;
@@ -48,6 +54,7 @@ export class Vehicle extends Entity {
   readonly height: number;
   readonly maxSteer: number;
   occupied = false;
+  route: TrafficRoute | null = null;
   yawRate = 0;
   steer = 0;
   /** Speed along the car's heading, in m/s. Negative when reversing. */
