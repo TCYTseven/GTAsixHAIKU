@@ -8,7 +8,16 @@ import { Aabb } from '../../src/math/aabb';
 const DT = 1 / 60;
 
 function controls(overrides: Partial<ControlState> = {}): ControlState {
-  return { moveForward: 0, moveRight: 0, sprint: false, jump: false, cameraYaw: 0, ...overrides };
+  return {
+    moveForward: 0,
+    moveRight: 0,
+    sprint: false,
+    jump: false,
+    handbrake: false,
+    interact: false,
+    cameraYaw: 0,
+    ...overrides,
+  };
 }
 
 function playerRegion(world: World): Aabb {
