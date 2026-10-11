@@ -1,6 +1,6 @@
 import './style.css';
 import { Game } from './game/game';
-import { ClearScene } from './game/clear-scene';
+import { SandboxScene } from './game/sandbox-scene';
 
 const canvas = document.getElementById('game-canvas');
 const fpsLabel = document.getElementById('fps-counter');
@@ -9,5 +9,5 @@ if (!(canvas instanceof HTMLCanvasElement) || !(fpsLabel instanceof HTMLElement)
 }
 
 const game = new Game();
-game.setScene(new ClearScene(canvas, fpsLabel));
+game.setScene(new SandboxScene(canvas, fpsLabel));
 game.start();
