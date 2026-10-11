@@ -189,7 +189,7 @@ export class PlayScene implements Scene {
     this.updateHud(car?.speedKmh ?? 0, car?.forwardSpeed ?? 0);
     const w = this.world;
     this.hud.status.textContent = w.player.alive
-      ? `HP ${Math.ceil(w.player.health)}  ${w.cash}  ${w.ammo}/${w.reserve}`
+      ? `HP ${Math.ceil(w.player.health)}  ${w.cash}  ${w.ammo}/${w.reserve}  ${'★'.repeat(w.wanted.level)}`
       : 'WASTED';
     const fps = Math.round(this.fps.tick(frameSeconds));
     this.label.textContent =

@@ -4,6 +4,12 @@ import { createRng, type Rng } from '../core/rng';
 import type { GameConfig } from '../data/load-config';
 import type { VehicleConfig } from '../data/schemas';
 import { Pedestrian, perimeterPoint, stepPedestrian } from '../entities/pedestrian';
+const SIGHT_RANGE = 60;
+const POLICE_SPAWN_MIN = 90;
+const POLICE_SPAWN_MAX = 130;
+const POLICE_DESPAWN_DISTANCE = 200;
+const POLICE_SPAWN_INTERVAL = 1.5;
+const POLICE_PAINT: Rgb = [0.12, 0.22, 0.55];
 import { Player, stepOnFoot } from '../entities/player';
 import { stepVehicle, Vehicle, type ImpactReport } from '../entities/vehicle';
 import { Aabb } from '../math/aabb';
@@ -17,6 +23,8 @@ import type { CollisionWorld } from '../world/collision-world';
 import type { RoadEdge } from '../world/road-graph';
 import { SolidSet } from '../world/solids';
 import type { GameEvents } from './events';
+import { WantedState, POLICE_BY_LEVEL } from '../systems/wanted';
+import { stepPolice, type PoliceUnit } from '../systems/police';
 import { fireHitscan, meleeTargets } from '../systems/combat';
 
 export interface Pickup {
@@ -76,6 +84,10 @@ export class World {
   reserve: number;
   readonly pickups: Pickup[] = [];
   readonly hospital: Vec3;
+  readonly wanted = new WantedState();
+  readonly police: PoliceUnit[] = [];
+  private readonly lastSeen = new Vec3();
+  private policeSpawnTimer = 0;
   private fireCooldown = 0;
   private meleeCooldown = 0;
   private reloadTimer = 0;
@@ -112,6 +124,16 @@ export class World {
         (block) => block.col === HOSPITAL_BLOCK.col && block.row === HOSPITAL_BLOCK.row,
       ) ?? this.layout.blocks[0];
     this.hospital = perimeterPoint(hospitalBlock.walkway, 0, new Vec3());
+    this.lastSeen.copy(spawn);
+    this.events.on('pedestrianKilled', ({ cause }) => {
+      if (cause !== 'vehicle' || this.player.vehicle) this.wanted.add(2);
+    });
+    this.events.on('vehicleImpact', ({ vehicle, speed }) => {
+      if (vehicle === this.player.vehicle && speed > 12) this.wanted.add(1);
+    });
+    this.events.on('shotFired', () => {
+      if (this.policeWithin(40)) this.wanted.add(1);
+    });
   }
 
   /** Where the camera is and which way it faces. Spawning keeps people out of its view. */
@@ -146,6 +168,7 @@ export class World {
     }
     this.updatePedestrians(dt);
     this.updateCombat(controls, dt);
+    this.updatePolice(dt);
 
     const driven = this.player.vehicle;
     this.solids.setMoving(this.vehicles.filter((v) => v !== driven).map((v) => v.bounds()));
@@ -169,6 +192,104 @@ export class World {
     this.publishImpacts();
     this.updateSurvival(dt);
     this.maintainPopulation(dt);
+  }
+
+  private isPolice(car: Vehicle): boolean {
+    return this.police.some((unit) => unit.car === car);
+  }
+
+  private policeWithin(range: number): boolean {
+    return this.police.some(
+      (unit) =>
+        Math.hypot(
+          unit.car.position.x - this.player.position.x,
+          unit.car.position.z - this.player.position.z,
+        ) < range,
+    );
+  }
+
+  /** Police see the player through a clear line, chase them, search where they were last seen, and patrol otherwise. */
+  private updatePolice(dt: number): void {
+    const player = this.player;
+    const target = player.vehicle ? player.vehicle.position : player.position;
+    let sees = false;
+    if (player.alive) {
+      for (const unit of this.police) {
+        const car = unit.car;
+        const dx = target.x - car.position.x;
+        const dz = target.z - car.position.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance > SIGHT_RANGE) continue;
+        const origin = new Vec3(car.position.x, 1.2, car.position.z);
+        const direction = new Vec3(dx, target.y + 1 - 1.2, dz).normalize();
+        if (this.collision.raycast(origin, direction, distance) === null) {
+          sees = true;
+          break;
+        }
+      }
+    }
+    if (sees) this.lastSeen.copy(target);
+    this.wanted.update(dt, sees);
+
+    this.policeSpawnTimer -= dt;
+    const wanted = POLICE_BY_LEVEL[this.wanted.level] ?? 0;
+    if (this.police.length < wanted && this.policeSpawnTimer <= 0) {
+      this.policeSpawnTimer = POLICE_SPAWN_INTERVAL;
+      this.trySpawnPolice();
+    }
+    for (let i = this.police.length - 1; i >= 0; i--) {
+      const unit = this.police[i];
+      const far = this.distanceToViewer(unit.car.position) > POLICE_DESPAWN_DISTANCE;
+      const surplus = this.police.length > wanted && unit.mode === 'patrol';
+      if (far || surplus || unit.car.health <= 0) {
+        if (unit.car.health <= 0) this.wanted.add(3);
+        this.police.splice(i, 1);
+        this.vehicles.splice(this.vehicles.indexOf(unit.car), 1);
+      }
+    }
+
+    for (const unit of this.police) {
+      unit.mode = sees ? 'pursue' : this.wanted.level > 0 ? 'search' : 'patrol';
+      unit.car.beginStep();
+      const goal = unit.mode === 'search' ? this.lastSeen : unit.target;
+      if (unit.mode === 'search') unit.target.copy(goal);
+      stepPolice(
+        unit,
+        dt,
+        target,
+        {
+          graph: this.layout.graph,
+          statics: this.collision,
+          vehicles: this.vehicles,
+          rng: this.rng,
+        },
+        this.impacts,
+      );
+    }
+  }
+
+  private trySpawnPolice(): void {
+    const edges = this.layout.graph.edges.filter((edge) => {
+      const d = this.distanceToViewer(edge.start);
+      return d >= POLICE_SPAWN_MIN && d <= POLICE_SPAWN_MAX;
+    });
+    if (edges.length === 0) return;
+    const edge = this.rng.pick(edges);
+    const model = this.config.vehicles.types[0];
+    const car = new Vehicle(
+      model,
+      new Vec3(edge.start.x, 0, edge.start.z),
+      edge.heading,
+      POLICE_PAINT,
+    );
+    if (overlapsAnything(car, this.vehicles, this.collision)) return;
+    this.vehicles.push(car);
+    this.police.push({
+      car,
+      mode: 'search',
+      target: new Vec3(edge.end.x, 0, edge.end.z),
+      stuckTimer: 0,
+    });
   }
 
   /** Shots and melee, car strikes on people, and cash pickups for one step. */
@@ -340,6 +461,7 @@ export class World {
     player.grounded = true;
     player.health = FULL_HEALTH;
     player.alive = true;
+    this.wanted.clear();
     this.events.emit('playerRespawned', {});
   }
 
@@ -348,7 +470,7 @@ export class World {
     let best: Vehicle | null = null;
     let bestDistance = ENTER_RANGE;
     for (const vehicle of this.vehicles) {
-      if (vehicle.occupied || vehicle.route) {
+      if (vehicle.occupied || vehicle.route || this.isPolice(vehicle)) {
         continue;
       }
       const distance = Math.hypot(
