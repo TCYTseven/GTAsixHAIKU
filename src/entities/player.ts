@@ -3,11 +3,14 @@ import type { PlayerConfig } from '../data/schemas';
 import { approach, clamp, wrapAngle } from '../math/util';
 import type { Vec3 } from '../math/vec3';
 import { integrateBody, type PhysicsBody } from '../systems/physics';
-import type { CollisionWorld } from '../world/collision-world';
+import type { SolidQuery } from '../world/solids';
 import { Entity } from './entity';
+import type { Vehicle } from './vehicle';
 
 export class Player extends Entity implements PhysicsBody {
   grounded = false;
+  /** The car the player is driving, or null when on foot. */
+  vehicle: Vehicle | null = null;
   readonly halfWidth: number;
   readonly height: number;
 
@@ -31,7 +34,7 @@ export function stepOnFoot(
   player: Player,
   controls: ControlState,
   dt: number,
-  collision: CollisionWorld,
+  collision: SolidQuery,
 ): void {
   const tuning = player.tuning;
   const sin = Math.sin(controls.cameraYaw);

@@ -63,3 +63,53 @@ export const PlayerConfigSchema = z
   });
 
 export type PlayerConfig = z.infer<typeof PlayerConfigSchema>;
+
+export const VehicleConfigSchema = z.object({
+  id: z.string().min(1),
+  /** Top forward speed in metres per second. */
+  maxSpeed: z.number().positive().max(60),
+  acceleration: z.number().positive(),
+  brakeForce: z.number().positive(),
+  reverseSpeed: z.number().positive(),
+  maxSteerDegrees: z.number().positive().max(60),
+  wheelbase: z.number().positive(),
+  /** Lateral grip. Lower values slide more. */
+  grip: z.number().positive(),
+  mass: z.number().positive(),
+  length: z.number().positive(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  health: z.number().positive(),
+  bodyColors: z.array(unitColor).min(1),
+  /** Relative chance of this model being parked on a street. */
+  spawnWeight: z.number().positive(),
+});
+
+export type VehicleConfig = z.infer<typeof VehicleConfigSchema>;
+
+export const ChaseCameraSchema = z
+  .object({
+    baseDistance: z.number().min(2).max(20),
+    /** Extra metres of distance per metre per second of speed. */
+    speedDistance: z.number().min(0).max(1),
+    maxDistance: z.number().min(2).max(40),
+    height: z.number().min(0).max(5),
+    /** How quickly the camera's focus catches up with the car. Higher is tighter. */
+    lagSharpness: z.number().positive(),
+    /** Radians per second the camera swings behind the car when the mouse is idle. */
+    alignRate: z.number().positive(),
+  })
+  .refine((camera) => camera.maxDistance >= camera.baseDistance, {
+    message: 'maxDistance must be at least baseDistance',
+    path: ['maxDistance'],
+  });
+
+export type ChaseCameraConfig = z.infer<typeof ChaseCameraSchema>;
+
+export const VehiclesConfigSchema = z.object({
+  types: z.array(VehicleConfigSchema).min(1),
+  parkedCount: z.number().int().min(0).max(200),
+  chaseCamera: ChaseCameraSchema,
+});
+
+export type VehiclesConfig = z.infer<typeof VehiclesConfigSchema>;

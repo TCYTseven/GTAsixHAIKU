@@ -1,6 +1,6 @@
 import { Aabb } from '../math/aabb';
 import type { Vec3 } from '../math/vec3';
-import type { CollisionWorld } from '../world/collision-world';
+import type { SolidQuery } from '../world/solids';
 
 const EPSILON = 1e-4;
 const MAX_PUSH_PASSES = 8;
@@ -30,7 +30,7 @@ export interface BodyPhysicsConfig {
  */
 export function integrateBody(
   body: PhysicsBody,
-  world: CollisionWorld,
+  world: SolidQuery,
   dt: number,
   config: BodyPhysicsConfig,
 ): void {
@@ -60,7 +60,7 @@ function bodyRegion(body: PhysicsBody, footY: number): Aabb {
 
 function moveHorizontal(
   body: PhysicsBody,
-  world: CollisionWorld,
+  world: SolidQuery,
   axis: 'x' | 'z',
   delta: number,
   stepHeight: number,
@@ -96,7 +96,7 @@ function moveHorizontal(
   }
 }
 
-function resolveVertical(body: PhysicsBody, world: CollisionWorld): void {
+function resolveVertical(body: PhysicsBody, world: SolidQuery): void {
   const hits = world.query(bodyRegion(body, body.position.y), scratchHits);
   if (hits.length > 0) {
     if (body.velocity.y <= 0) {
@@ -121,7 +121,7 @@ function resolveVertical(body: PhysicsBody, world: CollisionWorld): void {
   scratchHits.length = 0;
 }
 
-function firstOverlap(body: PhysicsBody, world: CollisionWorld, footY: number): Aabb | null {
+function firstOverlap(body: PhysicsBody, world: SolidQuery, footY: number): Aabb | null {
   const hits = world.query(bodyRegion(body, footY), scratchHits);
   const first = hits[0] ?? null;
   scratchHits.length = 0;
@@ -129,7 +129,7 @@ function firstOverlap(body: PhysicsBody, world: CollisionWorld, footY: number): 
 }
 
 /** Highest surface at or below the feet, within reach. Flat ground is at y = 0. */
-function supportHeight(body: PhysicsBody, world: CollisionWorld, stepHeight: number): number {
+function supportHeight(body: PhysicsBody, world: SolidQuery, stepHeight: number): number {
   const feet = body.position.y;
   const { x, z } = body.position;
   const hw = body.halfWidth;

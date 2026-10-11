@@ -4,13 +4,17 @@ import { DEFAULT_PLAYER_CONFIG } from './player.config';
 import {
   CityConfigSchema,
   PlayerConfigSchema,
+  VehiclesConfigSchema,
   type CityConfig,
   type PlayerConfig,
+  type VehiclesConfig,
 } from './schemas';
+import { DEFAULT_VEHICLES_CONFIG } from './vehicles.config';
 
 export interface GameConfig {
   readonly city: CityConfig;
   readonly player: PlayerConfig;
+  readonly vehicles: VehiclesConfig;
 }
 
 /** Thrown when configuration fails validation. The message lists every problem found. */
@@ -26,6 +30,7 @@ export function loadGameConfig(): GameConfig {
   return {
     city: parseConfig('city.config.ts', CityConfigSchema, DEFAULT_CITY_CONFIG),
     player: parseConfig('player.config.ts', PlayerConfigSchema, DEFAULT_PLAYER_CONFIG),
+    vehicles: parseConfig('vehicles.config.ts', VehiclesConfigSchema, DEFAULT_VEHICLES_CONFIG),
   };
 }
 
