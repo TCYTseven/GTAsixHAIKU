@@ -1,0 +1,349 @@
+import type { ControlState } from '../core/controls';
+import { fitCanvasToDisplay } from '../core/fit-canvas';
+import { FpsCounter } from '../core/fps-counter';
+import { Input } from '../core/input';
+import type { Scene } from '../core/scene';
+import type { GameConfig } from '../data/load-config';
+import type { ChaseCameraConfig } from '../data/schemas';
+import { createMat4, mat4FromTransform, type Mat4 } from '../math/mat4';
+import { clamp } from '../math/util';
+import { Vec3 } from '../math/vec3';
+import { Camera } from '../render/camera';
+import { DEFAULT_ENVIRONMENT } from '../render/environment';
+import { buildFigureMesh, type FigurePalette } from '../render/figure-mesh';
+import { createWebGL2Context } from '../render/gl-context';
+import { Mesh } from '../render/mesh';
+import { Renderer } from '../render/renderer';
+import { buildVehicleMesh } from '../render/vehicle-mesh';
+import { buildStaticChunks } from '../world/chunk';
+import { FollowCamera, type OrbitShot } from './follow-camera';
+import { World } from './world';
+import { drawMinimap, MINIMAP_SIZE, type MinimapBlip } from '../ui/minimap';
+import { Menus } from '../ui/menus';
+import { Sfx } from '../audio/sfx';
+
+const LOOK_RADIANS_PER_PIXEL = 0.0022;
+const FIGURE_PALETTE: FigurePalette = {
+  jacket: [0.2, 0.32, 0.5],
+  pants: [0.14, 0.14, 0.18],
+  skin: [0.86, 0.68, 0.52],
+  accent: [0.05, 0.05, 0.06],
+};
+const REVERSING_SPEED = -0.5;
+const PEDESTRIAN_PALETTES: readonly FigurePalette[] = [
+  {
+    jacket: [0.7, 0.2, 0.2],
+    pants: [0.2, 0.2, 0.25],
+    skin: [0.86, 0.68, 0.52],
+    accent: [0.05, 0.05, 0.06],
+  },
+  {
+    jacket: [0.9, 0.8, 0.3],
+    pants: [0.25, 0.25, 0.3],
+    skin: [0.6, 0.42, 0.3],
+    accent: [0.05, 0.05, 0.06],
+  },
+  {
+    jacket: [0.3, 0.6, 0.35],
+    pants: [0.15, 0.15, 0.2],
+    skin: [0.9, 0.75, 0.6],
+    accent: [0.05, 0.05, 0.06],
+  },
+  {
+    jacket: [0.55, 0.55, 0.6],
+    pants: [0.1, 0.1, 0.12],
+    skin: [0.75, 0.55, 0.4],
+    accent: [0.05, 0.05, 0.06],
+  },
+];
+
+/** DOM readouts the play scene keeps up to date. */
+export interface PlayHud {
+  readonly speedometer: HTMLElement;
+  readonly prompt: HTMLElement;
+  readonly status: HTMLElement;
+}
+
+interface DrawableChunk {
+  readonly center: Vec3;
+  readonly radius: number;
+  readonly mesh: Mesh;
+}
+
+/** Walking the city on foot, or driving through it, with a third-person camera. */
+export class PlayScene implements Scene {
+  private readonly gl: WebGL2RenderingContext;
+  private readonly renderer: Renderer;
+  private readonly input = new Input();
+  private readonly camera = new Camera();
+  private readonly follow: FollowCamera;
+  private readonly fps = new FpsCounter();
+  private readonly world: World;
+  private readonly chunks: DrawableChunk[];
+  private readonly figure: Mesh;
+  private readonly vehicleMeshes = new Map<string, Mesh>();
+  private readonly chase: ChaseCameraConfig;
+  private readonly identity: Mat4 = mat4FromTransform(createMat4(), 0, 0, 0, 0);
+  private readonly model: Mat4 = createMat4();
+  private readonly focus = new Vec3();
+  private paused = true;
+  private readonly sfx = new Sfx();
+  private sirenOn = false;
+  private readonly menus: Menus;
+  private readonly minimapCanvas: HTMLCanvasElement;
+  private readonly minimapContext: CanvasRenderingContext2D;
+  private readonly objectiveLabel: HTMLElement;
+  private readonly toastLabel: HTMLElement;
+  private minimapTimer = 0;
+  private toastTimer = 0;
+  private readonly viewForward = new Vec3();
+  private readonly walkerMeshes: Mesh[] = [];
+  private readonly carPosition = new Vec3();
+
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly label: HTMLElement,
+    private readonly hud: PlayHud,
+    config: GameConfig,
+  ) {
+    this.gl = createWebGL2Context(canvas);
+    this.renderer = new Renderer(this.gl);
+    this.world = new World(config);
+    this.follow = new FollowCamera(this.camera, config.player);
+    this.chase = config.vehicles.chaseCamera;
+    this.chunks = buildStaticChunks(this.world.layout, config.city.chunkSize).map((chunk) => ({
+      center: chunk.center,
+      radius: chunk.radius,
+      mesh: new Mesh(this.gl, chunk.mesh),
+    }));
+    this.figure = new Mesh(this.gl, buildFigureMesh(FIGURE_PALETTE));
+    for (const palette of PEDESTRIAN_PALETTES) {
+      this.walkerMeshes.push(new Mesh(this.gl, buildFigureMesh(palette)));
+    }
+    this.menus = new Menus({
+      onStart: () => {
+        this.sfx.unlock();
+        this.setPaused(false);
+      },
+      onResume: () => this.setPaused(false),
+    });
+    this.minimapCanvas = document.createElement('canvas');
+    this.minimapCanvas.width = MINIMAP_SIZE;
+    this.minimapCanvas.height = MINIMAP_SIZE;
+    this.minimapCanvas.id = 'minimap';
+    const minimapContext = this.minimapCanvas.getContext('2d');
+    if (!minimapContext) throw new Error('2D canvas context is not available for the minimap.');
+    this.minimapContext = minimapContext;
+    this.objectiveLabel = document.createElement('div');
+    this.objectiveLabel.id = 'objective';
+    this.toastLabel = document.createElement('div');
+    this.toastLabel.id = 'toast';
+    this.toastLabel.hidden = true;
+    document.body.append(this.minimapCanvas, this.objectiveLabel, this.toastLabel);
+    this.world.events.on('shotFired', () => this.sfx.gunshot());
+    this.world.events.on('vehicleImpact', ({ speed }) => this.sfx.impact(speed / 20));
+    this.world.events.on('missionCompleted', ({ title, reward }) => {
+      this.toastLabel.textContent = `${title} complete: +${reward}`;
+      this.toastLabel.hidden = false;
+      this.toastTimer = 4;
+    });
+    for (const type of config.vehicles.types) {
+      const data = buildVehicleMesh(type.length, type.width, type.height);
+      this.vehicleMeshes.set(type.id, new Mesh(this.gl, data));
+    }
+  }
+
+  enter(): void {
+    this.input.attach(this.canvas);
+  }
+
+  exit(): void {
+    this.input.detach();
+  }
+
+  fixedUpdate(dt: number): void {
+    if (this.input.consumePress('Escape') && this.menus) {
+      this.setPaused(!this.paused);
+    }
+    if (this.paused) {
+      return;
+    }
+    const controls: ControlState = {
+      moveForward: axis(this.input.isHeld('KeyW'), this.input.isHeld('KeyS')),
+      moveRight: axis(this.input.isHeld('KeyD'), this.input.isHeld('KeyA')),
+      sprint: this.input.isHeld('ShiftLeft'),
+      jump: this.input.consumePress('Space'),
+      handbrake: this.input.isHeld('Space'),
+      interact: this.input.consumePress('KeyF'),
+      fire: this.input.isButtonHeld(0),
+      melee: this.input.consumePress('KeyQ'),
+      reload: this.input.consumePress('KeyR'),
+      aim: this.camera.forward(this.viewForward).toTuple(),
+      cameraYaw: this.camera.yaw,
+    };
+    this.world.setViewer(this.camera.eye, this.camera.forward(this.viewForward));
+    this.world.step(dt, controls);
+  }
+
+  render(alpha: number, frameSeconds: number): void {
+    fitCanvasToDisplay(this.canvas);
+    const look = this.input.takeMouseDelta();
+    this.follow.addLook(-look.x * LOOK_RADIANS_PER_PIXEL, -look.y * LOOK_RADIANS_PER_PIXEL);
+    const aspect = this.canvas.width / this.canvas.height;
+
+    const car = this.world.player.vehicle;
+    if (car) {
+      // With the mouse idle, swing the camera around behind the car.
+      if (look.x === 0 && look.y === 0) {
+        this.follow.alignYaw(car.heading, this.chase.alignRate * frameSeconds);
+      }
+      car.interpolatedPosition(alpha, this.focus);
+      const speed = Math.abs(car.forwardSpeed);
+      const distance = clamp(
+        this.chase.baseDistance + this.chase.speedDistance * speed,
+        this.chase.baseDistance,
+        this.chase.maxDistance,
+      );
+      const shot: OrbitShot = {
+        distance,
+        height: this.chase.height,
+        lagSharpness: this.chase.lagSharpness,
+      };
+      this.follow.update(this.focus, frameSeconds, this.world.collision, aspect, shot);
+    } else {
+      this.world.player.interpolatedPosition(alpha, this.focus);
+      this.follow.update(this.focus, frameSeconds, this.world.collision, aspect);
+    }
+
+    this.renderer.beginFrame(this.camera, DEFAULT_ENVIRONMENT);
+    this.renderer.drawSky();
+    let visible = 0;
+    for (const chunk of this.chunks) {
+      if (this.renderer.isSphereVisible(chunk.center, chunk.radius)) {
+        this.renderer.drawMesh(chunk.mesh, this.identity);
+        visible += 1;
+      }
+    }
+    this.drawVehicles(alpha);
+    this.drawPedestrians(alpha);
+    if (!car) {
+      const player = this.world.player;
+      mat4FromTransform(this.model, this.focus.x, this.focus.y, this.focus.z, player.heading);
+      this.renderer.drawMesh(this.figure, this.model);
+    }
+
+    this.updateMinimap(frameSeconds);
+    this.sfx.setEngine(car ? car.speedKmh : null);
+    const siren = this.world.wanted.level > 0;
+    if (siren !== this.sirenOn) {
+      this.sirenOn = siren;
+      this.sfx.setSiren(siren);
+    }
+    this.updateObjective();
+    this.updateHud(car?.speedKmh ?? 0, car?.forwardSpeed ?? 0);
+    const w = this.world;
+    this.hud.status.textContent = w.player.alive
+      ? `HP ${Math.ceil(w.player.health)}  ${w.cash}  ${w.ammo}/${w.reserve}  ${'★'.repeat(w.wanted.level)}`
+      : 'WASTED';
+    const fps = Math.round(this.fps.tick(frameSeconds));
+    this.label.textContent =
+      `${fps} FPS | ${this.renderer.stats.drawCalls} draws | ` +
+      `${visible}/${this.chunks.length} chunks`;
+  }
+
+  private setPaused(paused: boolean): void {
+    this.paused = paused;
+    if (paused) this.menus.showPause();
+    else this.menus.hide();
+  }
+
+  private updateObjective(): void {
+    const objective = this.world.objective;
+    this.objectiveLabel.hidden = objective === null;
+    if (objective) this.objectiveLabel.textContent = objective.text;
+    if (this.toastTimer > 0) {
+      this.toastTimer -= 1 / 60;
+      if (this.toastTimer <= 0) this.toastLabel.hidden = true;
+    }
+  }
+
+  private updateMinimap(frameSeconds: number): void {
+    this.minimapTimer -= frameSeconds;
+    if (this.minimapTimer > 0) return;
+    this.minimapTimer = 0.1;
+    const player = this.world.player;
+    const blips: MinimapBlip[] = [];
+    for (const start of this.world.availableMissionStarts)
+      blips.push({ x: start.x, z: start.z, color: '#ffd23f' });
+    const objective = this.world.objective;
+    if (objective) blips.push({ x: objective.x, z: objective.z, color: '#ff7a1a' });
+    for (const unit of this.world.police)
+      blips.push({ x: unit.car.position.x, z: unit.car.position.z, color: '#4da3ff' });
+    drawMinimap(this.minimapContext, this.world.layout, {
+      player: { x: player.position.x, z: player.position.z, heading: this.camera.yaw },
+      blips,
+    });
+  }
+
+  private drawPedestrians(alpha: number): void {
+    for (const walker of this.world.pedestrians) {
+      walker.interpolatedPosition(alpha, this.carPosition);
+      if (!this.renderer.isSphereVisible(this.carPosition, 1)) {
+        continue;
+      }
+      const mesh = this.walkerMeshes[walker.variant % this.walkerMeshes.length];
+      mat4FromTransform(
+        this.model,
+        this.carPosition.x,
+        this.carPosition.y,
+        this.carPosition.z,
+        walker.heading,
+      );
+      this.renderer.drawMesh(mesh, this.model);
+    }
+  }
+
+  private drawVehicles(alpha: number): void {
+    for (const vehicle of this.world.vehicles) {
+      vehicle.interpolatedPosition(alpha, this.carPosition);
+      const radius = vehicle.halfLength + vehicle.halfWidth;
+      if (!this.renderer.isSphereVisible(this.carPosition, radius)) {
+        continue;
+      }
+      const mesh = this.vehicleMeshes.get(vehicle.tuning.id);
+      if (!mesh) {
+        continue;
+      }
+      mat4FromTransform(
+        this.model,
+        this.carPosition.x,
+        this.carPosition.y,
+        this.carPosition.z,
+        vehicle.heading,
+      );
+      this.renderer.drawMesh(mesh, this.model, vehicle.bodyColor);
+    }
+  }
+
+  private updateHud(speedKmh: number, forwardSpeed: number): void {
+    const car = this.world.player.vehicle;
+    if (car) {
+      this.hud.speedometer.hidden = false;
+      const gear = forwardSpeed < REVERSING_SPEED ? 'R' : 'D';
+      this.hud.speedometer.textContent = `${Math.round(speedKmh)} km/h  ${gear}`;
+      this.hud.prompt.textContent = 'F  Leave the car';
+      this.hud.prompt.hidden = false;
+      return;
+    }
+    this.hud.speedometer.hidden = true;
+    const nearby = this.world.nearestEnterableVehicle();
+    this.hud.prompt.hidden = nearby === null;
+    if (nearby) {
+      this.hud.prompt.textContent = 'F  Enter the car';
+    }
+  }
+}
+
+function axis(positive: boolean, negative: boolean): number {
+  return (positive ? 1 : 0) - (negative ? 1 : 0);
+}

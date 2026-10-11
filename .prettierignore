@@ -1,0 +1,6 @@
+dist
+coverage
+node_modules
+package-lock.json
+# The build plan is the project owner's document; keep its wording and layout as written.
+BUILD_PLAN.md

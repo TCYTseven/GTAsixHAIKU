@@ -1,0 +1,70 @@
+import type { z } from 'zod';
+import { DEFAULT_CITY_CONFIG } from './city.config';
+import { DEFAULT_PLAYER_CONFIG } from './player.config';
+import { DEFAULT_POPULATION_CONFIG } from './population.config';
+import { DEFAULT_MISSIONS_CONFIG } from './missions.config';
+import {
+  CityConfigSchema,
+  PlayerConfigSchema,
+  PopulationConfigSchema,
+  VehiclesConfigSchema,
+  WeaponsConfigSchema,
+  MissionsConfigSchema,
+  type MissionsConfig,
+  type CityConfig,
+  type PlayerConfig,
+  type PopulationConfig,
+  type VehiclesConfig,
+  type WeaponsConfig,
+} from './schemas';
+import { DEFAULT_VEHICLES_CONFIG } from './vehicles.config';
+import { DEFAULT_WEAPONS_CONFIG } from './weapons.config';
+
+export interface GameConfig {
+  readonly city: CityConfig;
+  readonly player: PlayerConfig;
+  readonly vehicles: VehiclesConfig;
+  readonly population: PopulationConfig;
+  readonly weapons: WeaponsConfig;
+  readonly missions: MissionsConfig;
+}
+
+/** Thrown when configuration fails validation. The message lists every problem found. */
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConfigError';
+  }
+}
+
+/** Validates all tunable configuration. Call once at startup, before any world is generated. */
+export function loadGameConfig(): GameConfig {
+  return {
+    city: parseConfig('city.config.ts', CityConfigSchema, DEFAULT_CITY_CONFIG),
+    player: parseConfig('player.config.ts', PlayerConfigSchema, DEFAULT_PLAYER_CONFIG),
+    vehicles: parseConfig('vehicles.config.ts', VehiclesConfigSchema, DEFAULT_VEHICLES_CONFIG),
+    population: parseConfig(
+      'population.config.ts',
+      PopulationConfigSchema,
+      DEFAULT_POPULATION_CONFIG,
+    ),
+    weapons: parseConfig('weapons.config.ts', WeaponsConfigSchema, DEFAULT_WEAPONS_CONFIG),
+    missions: parseConfig('missions.config.ts', MissionsConfigSchema, DEFAULT_MISSIONS_CONFIG),
+  };
+}
+
+export function parseConfig<T extends z.ZodType>(
+  name: string,
+  schema: T,
+  value: unknown,
+): z.output<T> {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const problems = result.error.issues.map((issue) => {
+      const where = issue.path.map(String).join('.') || '(root)';
+      return `  - ${where}: ${issue.message}`;
+    });
+    throw new ConfigError(`Invalid ${name}:\n${problems.join('\n')}`);
+  }
+  return result.data;
+}
