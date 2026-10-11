@@ -28,18 +28,23 @@ Then open the URL that Vite prints.
 | `npm run lint`         | Runs ESLint                                      |
 | `npm run format:check` | Checks Prettier formatting                       |
 
-## Controls (sandbox)
+## Scenes
 
-The current scene is a test field for the renderer and camera. Gameplay controls arrive with later milestones and are listed in section 9 of the build plan.
+- `index.html` (default): a fly-through of the generated city. The layout comes from the seed in `src/data/city.config.ts`, so the same seed always builds the same city.
+- `index.html?scene=sandbox`: the renderer test field from M1. It is not part of normal play.
 
-| Input | Action |
-| --- | --- |
-| W, A, S, D | Move |
-| Space, Left Ctrl | Rise, descend |
-| Left Shift | Move faster |
+## Controls
+
+Click the canvas to capture the mouse. Gameplay controls arrive with later milestones and are listed in section 9 of the build plan.
+
+| Input            | Action                     |
+| ---------------- | -------------------------- |
+| W, A, S, D       | Move                       |
+| Space, Left Ctrl | Rise, descend              |
+| Left Shift       | Move faster                |
 | Click the canvas | Capture the mouse for look |
-| Mouse (captured) | Look around |
-| Esc | Release the mouse |
+| Mouse (captured) | Look around                |
+| Esc              | Release the mouse          |
 
 ## Project layout
 
