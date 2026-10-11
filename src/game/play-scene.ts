@@ -4,7 +4,9 @@ import { FpsCounter } from '../core/fps-counter';
 import { Input } from '../core/input';
 import type { Scene } from '../core/scene';
 import type { GameConfig } from '../data/load-config';
+import type { ChaseCameraConfig } from '../data/schemas';
 import { createMat4, mat4FromTransform, type Mat4 } from '../math/mat4';
+import { clamp } from '../math/util';
 import { Vec3 } from '../math/vec3';
 import { Camera } from '../render/camera';
 import { DEFAULT_ENVIRONMENT } from '../render/environment';
@@ -12,8 +14,9 @@ import { buildFigureMesh, type FigurePalette } from '../render/figure-mesh';
 import { createWebGL2Context } from '../render/gl-context';
 import { Mesh } from '../render/mesh';
 import { Renderer } from '../render/renderer';
+import { buildVehicleMesh } from '../render/vehicle-mesh';
 import { buildStaticChunks } from '../world/chunk';
-import { FollowCamera } from './follow-camera';
+import { FollowCamera, type OrbitShot } from './follow-camera';
 import { World } from './world';
 
 const LOOK_RADIANS_PER_PIXEL = 0.0022;
@@ -23,6 +26,13 @@ const FIGURE_PALETTE: FigurePalette = {
   skin: [0.86, 0.68, 0.52],
   accent: [0.05, 0.05, 0.06],
 };
+const REVERSING_SPEED = -0.5;
+
+/** DOM readouts the play scene keeps up to date. */
+export interface PlayHud {
+  readonly speedometer: HTMLElement;
+  readonly prompt: HTMLElement;
+}
 
 interface DrawableChunk {
   readonly center: Vec3;
@@ -30,7 +40,7 @@ interface DrawableChunk {
   readonly mesh: Mesh;
 }
 
-/** Walking around the generated city with a third-person camera. */
+/** Walking the city on foot, or driving through it, with a third-person camera. */
 export class PlayScene implements Scene {
   private readonly gl: WebGL2RenderingContext;
   private readonly renderer: Renderer;
@@ -41,25 +51,34 @@ export class PlayScene implements Scene {
   private readonly world: World;
   private readonly chunks: DrawableChunk[];
   private readonly figure: Mesh;
+  private readonly vehicleMeshes = new Map<string, Mesh>();
+  private readonly chase: ChaseCameraConfig;
   private readonly identity: Mat4 = mat4FromTransform(createMat4(), 0, 0, 0, 0);
-  private readonly figureModel: Mat4 = createMat4();
+  private readonly model: Mat4 = createMat4();
   private readonly focus = new Vec3();
+  private readonly carPosition = new Vec3();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly label: HTMLElement,
+    private readonly hud: PlayHud,
     config: GameConfig,
   ) {
     this.gl = createWebGL2Context(canvas);
     this.renderer = new Renderer(this.gl);
     this.world = new World(config);
     this.follow = new FollowCamera(this.camera, config.player);
+    this.chase = config.vehicles.chaseCamera;
     this.chunks = buildStaticChunks(this.world.layout, config.city.chunkSize).map((chunk) => ({
       center: chunk.center,
       radius: chunk.radius,
       mesh: new Mesh(this.gl, chunk.mesh),
     }));
     this.figure = new Mesh(this.gl, buildFigureMesh(FIGURE_PALETTE));
+    for (const type of config.vehicles.types) {
+      const data = buildVehicleMesh(type.length, type.width, type.height);
+      this.vehicleMeshes.set(type.id, new Mesh(this.gl, data));
+    }
   }
 
   enter(): void {
@@ -76,6 +95,8 @@ export class PlayScene implements Scene {
       moveRight: axis(this.input.isHeld('KeyD'), this.input.isHeld('KeyA')),
       sprint: this.input.isHeld('ShiftLeft'),
       jump: this.input.consumePress('Space'),
+      handbrake: this.input.isHeld('Space'),
+      interact: this.input.consumePress('KeyF'),
       cameraYaw: this.camera.yaw,
     };
     this.world.step(dt, controls);
@@ -85,15 +106,31 @@ export class PlayScene implements Scene {
     fitCanvasToDisplay(this.canvas);
     const look = this.input.takeMouseDelta();
     this.follow.addLook(-look.x * LOOK_RADIANS_PER_PIXEL, -look.y * LOOK_RADIANS_PER_PIXEL);
+    const aspect = this.canvas.width / this.canvas.height;
 
-    const player = this.world.player;
-    player.interpolatedPosition(alpha, this.focus);
-    this.follow.update(
-      this.focus,
-      frameSeconds,
-      this.world.collision,
-      this.canvas.width / this.canvas.height,
-    );
+    const car = this.world.player.vehicle;
+    if (car) {
+      // With the mouse idle, swing the camera around behind the car.
+      if (look.x === 0 && look.y === 0) {
+        this.follow.alignYaw(car.heading, this.chase.alignRate * frameSeconds);
+      }
+      car.interpolatedPosition(alpha, this.focus);
+      const speed = Math.abs(car.forwardSpeed);
+      const distance = clamp(
+        this.chase.baseDistance + this.chase.speedDistance * speed,
+        this.chase.baseDistance,
+        this.chase.maxDistance,
+      );
+      const shot: OrbitShot = {
+        distance,
+        height: this.chase.height,
+        lagSharpness: this.chase.lagSharpness,
+      };
+      this.follow.update(this.focus, frameSeconds, this.world.collision, aspect, shot);
+    } else {
+      this.world.player.interpolatedPosition(alpha, this.focus);
+      this.follow.update(this.focus, frameSeconds, this.world.collision, aspect);
+    }
 
     this.renderer.beginFrame(this.camera, DEFAULT_ENVIRONMENT);
     this.renderer.drawSky();
@@ -104,13 +141,58 @@ export class PlayScene implements Scene {
         visible += 1;
       }
     }
-    mat4FromTransform(this.figureModel, this.focus.x, this.focus.y, this.focus.z, player.heading);
-    this.renderer.drawMesh(this.figure, this.figureModel);
+    this.drawVehicles(alpha);
+    if (!car) {
+      const player = this.world.player;
+      mat4FromTransform(this.model, this.focus.x, this.focus.y, this.focus.z, player.heading);
+      this.renderer.drawMesh(this.figure, this.model);
+    }
 
+    this.updateHud(car?.speedKmh ?? 0, car?.forwardSpeed ?? 0);
     const fps = Math.round(this.fps.tick(frameSeconds));
     this.label.textContent =
       `${fps} FPS | ${this.renderer.stats.drawCalls} draws | ` +
       `${visible}/${this.chunks.length} chunks`;
+  }
+
+  private drawVehicles(alpha: number): void {
+    for (const vehicle of this.world.vehicles) {
+      vehicle.interpolatedPosition(alpha, this.carPosition);
+      const radius = vehicle.halfLength + vehicle.halfWidth;
+      if (!this.renderer.isSphereVisible(this.carPosition, radius)) {
+        continue;
+      }
+      const mesh = this.vehicleMeshes.get(vehicle.tuning.id);
+      if (!mesh) {
+        continue;
+      }
+      mat4FromTransform(
+        this.model,
+        this.carPosition.x,
+        this.carPosition.y,
+        this.carPosition.z,
+        vehicle.heading,
+      );
+      this.renderer.drawMesh(mesh, this.model, vehicle.bodyColor);
+    }
+  }
+
+  private updateHud(speedKmh: number, forwardSpeed: number): void {
+    const car = this.world.player.vehicle;
+    if (car) {
+      this.hud.speedometer.hidden = false;
+      const gear = forwardSpeed < REVERSING_SPEED ? 'R' : 'D';
+      this.hud.speedometer.textContent = `${Math.round(speedKmh)} km/h  ${gear}`;
+      this.hud.prompt.textContent = 'F  Leave the car';
+      this.hud.prompt.hidden = false;
+      return;
+    }
+    this.hud.speedometer.hidden = true;
+    const nearby = this.world.nearestEnterableVehicle();
+    this.hud.prompt.hidden = nearby === null;
+    if (nearby) {
+      this.hud.prompt.textContent = 'F  Enter the car';
+    }
   }
 }
 

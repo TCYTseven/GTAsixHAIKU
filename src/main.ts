@@ -7,13 +7,17 @@ import { SandboxScene } from './game/sandbox-scene';
 
 const canvas = document.getElementById('game-canvas');
 const fpsLabel = document.getElementById('fps-counter');
+const speedometer = document.getElementById('speedometer');
+const prompt = document.getElementById('prompt');
 const fatalError = document.getElementById('fatal-error');
 if (
   !(canvas instanceof HTMLCanvasElement) ||
   !(fpsLabel instanceof HTMLElement) ||
+  !(speedometer instanceof HTMLElement) ||
+  !(prompt instanceof HTMLElement) ||
   !(fatalError instanceof HTMLElement)
 ) {
-  throw new Error('index.html is missing #game-canvas, #fps-counter, or #fatal-error.');
+  throw new Error('index.html is missing one of the required elements.');
 }
 
 try {
@@ -26,7 +30,7 @@ try {
   } else if (sceneName === 'fly') {
     scene = new CityScene(canvas, fpsLabel, config.city);
   } else {
-    scene = new PlayScene(canvas, fpsLabel, config);
+    scene = new PlayScene(canvas, fpsLabel, { speedometer, prompt }, config);
   }
 
   const game = new Game();

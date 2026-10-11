@@ -9,6 +9,15 @@ const MIN_DISTANCE = 0.6;
 const PULL_IN_SHARPNESS = 25;
 const DRIFT_SHARPNESS = 6;
 const DEFAULT_PITCH = -0.18;
+const ON_FOOT_LAG_SHARPNESS = 60;
+
+/** How far back and how tightly a follow camera tracks its focus. */
+export interface OrbitShot {
+  readonly distance: number;
+  readonly height: number;
+  /** How quickly the focus catches up with the target. Higher is tighter. */
+  readonly lagSharpness: number;
+}
 
 /**
  * Third-person camera that orbits a focus point. When a building stands between the focus and the
@@ -16,15 +25,23 @@ const DEFAULT_PITCH = -0.18;
  */
 export class FollowCamera {
   private distance: number;
+  private readonly smoothFocus = new Vec3();
+  private hasFocus = false;
   private readonly target = new Vec3();
   private readonly back = new Vec3();
   private readonly eye = new Vec3();
+  private readonly defaultShot: OrbitShot;
 
   constructor(
     private readonly camera: Camera,
     private readonly tuning: PlayerConfig,
   ) {
     this.distance = tuning.cameraDistance;
+    this.defaultShot = {
+      distance: tuning.cameraDistance,
+      height: tuning.cameraHeight,
+      lagSharpness: ON_FOOT_LAG_SHARPNESS,
+    };
     camera.pitch = DEFAULT_PITCH;
   }
 
@@ -38,12 +55,35 @@ export class FollowCamera {
     );
   }
 
-  /** Places the camera behind `focus`, which is the feet of the followed body. */
-  update(focus: Vec3, frameSeconds: number, collision: CollisionWorld, aspect: number): void {
-    this.target.set(focus.x, focus.y + this.tuning.cameraHeight, focus.z);
+  /** Swings the orbit toward `yaw` by at most `maxStep` radians. Used to settle behind a car. */
+  alignYaw(yaw: number, maxStep: number): void {
+    const difference = wrapAngle(yaw - this.camera.yaw);
+    this.camera.yaw = wrapAngle(this.camera.yaw + clamp(difference, -maxStep, maxStep));
+  }
+
+  /** Places the camera behind `focus`, which is the feet of the body being followed. */
+  update(
+    focus: Vec3,
+    frameSeconds: number,
+    collision: CollisionWorld,
+    aspect: number,
+    shot: OrbitShot = this.defaultShot,
+  ): void {
+    if (this.hasFocus) {
+      const s = shot.lagSharpness;
+      this.smoothFocus.set(
+        damp(this.smoothFocus.x, focus.x, s, frameSeconds),
+        damp(this.smoothFocus.y, focus.y, s, frameSeconds),
+        damp(this.smoothFocus.z, focus.z, s, frameSeconds),
+      );
+    } else {
+      this.smoothFocus.copy(focus);
+      this.hasFocus = true;
+    }
+    this.target.set(this.smoothFocus.x, this.smoothFocus.y + shot.height, this.smoothFocus.z);
     this.camera.forward(this.back).scale(-1);
 
-    const desired = this.tuning.cameraDistance;
+    const desired = shot.distance;
     const hit = collision.raycast(this.target, this.back, desired);
     const goal = hit === null ? desired : clamp(hit - WALL_MARGIN, MIN_DISTANCE, desired);
     const sharpness = goal < this.distance ? PULL_IN_SHARPNESS : DRIFT_SHARPNESS;
