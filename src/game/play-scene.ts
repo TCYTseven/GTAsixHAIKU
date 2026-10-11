@@ -18,6 +18,8 @@ import { buildVehicleMesh } from '../render/vehicle-mesh';
 import { buildStaticChunks } from '../world/chunk';
 import { FollowCamera, type OrbitShot } from './follow-camera';
 import { World } from './world';
+import { drawMinimap, MINIMAP_SIZE, type MinimapBlip } from '../ui/minimap';
+import { Menus } from '../ui/menus';
 
 const LOOK_RADIANS_PER_PIXEL = 0.0022;
 const FIGURE_PALETTE: FigurePalette = {
@@ -83,6 +85,14 @@ export class PlayScene implements Scene {
   private readonly identity: Mat4 = mat4FromTransform(createMat4(), 0, 0, 0, 0);
   private readonly model: Mat4 = createMat4();
   private readonly focus = new Vec3();
+  private paused = true;
+  private readonly menus: Menus;
+  private readonly minimapCanvas: HTMLCanvasElement;
+  private readonly minimapContext: CanvasRenderingContext2D;
+  private readonly objectiveLabel: HTMLElement;
+  private readonly toastLabel: HTMLElement;
+  private minimapTimer = 0;
+  private toastTimer = 0;
   private readonly viewForward = new Vec3();
   private readonly walkerMeshes: Mesh[] = [];
   private readonly carPosition = new Vec3();
@@ -107,6 +117,28 @@ export class PlayScene implements Scene {
     for (const palette of PEDESTRIAN_PALETTES) {
       this.walkerMeshes.push(new Mesh(this.gl, buildFigureMesh(palette)));
     }
+    this.menus = new Menus({
+      onStart: () => this.setPaused(false),
+      onResume: () => this.setPaused(false),
+    });
+    this.minimapCanvas = document.createElement('canvas');
+    this.minimapCanvas.width = MINIMAP_SIZE;
+    this.minimapCanvas.height = MINIMAP_SIZE;
+    this.minimapCanvas.id = 'minimap';
+    const minimapContext = this.minimapCanvas.getContext('2d');
+    if (!minimapContext) throw new Error('2D canvas context is not available for the minimap.');
+    this.minimapContext = minimapContext;
+    this.objectiveLabel = document.createElement('div');
+    this.objectiveLabel.id = 'objective';
+    this.toastLabel = document.createElement('div');
+    this.toastLabel.id = 'toast';
+    this.toastLabel.hidden = true;
+    document.body.append(this.minimapCanvas, this.objectiveLabel, this.toastLabel);
+    this.world.events.on('missionCompleted', ({ title, reward }) => {
+      this.toastLabel.textContent = `${title} complete: +${reward}`;
+      this.toastLabel.hidden = false;
+      this.toastTimer = 4;
+    });
     for (const type of config.vehicles.types) {
       const data = buildVehicleMesh(type.length, type.width, type.height);
       this.vehicleMeshes.set(type.id, new Mesh(this.gl, data));
@@ -122,6 +154,12 @@ export class PlayScene implements Scene {
   }
 
   fixedUpdate(dt: number): void {
+    if (this.input.consumePress('Escape') && this.menus) {
+      this.setPaused(!this.paused);
+    }
+    if (this.paused) {
+      return;
+    }
     const controls: ControlState = {
       moveForward: axis(this.input.isHeld('KeyW'), this.input.isHeld('KeyS')),
       moveRight: axis(this.input.isHeld('KeyD'), this.input.isHeld('KeyA')),
@@ -186,6 +224,8 @@ export class PlayScene implements Scene {
       this.renderer.drawMesh(this.figure, this.model);
     }
 
+    this.updateMinimap(frameSeconds);
+    this.updateObjective();
     this.updateHud(car?.speedKmh ?? 0, car?.forwardSpeed ?? 0);
     const w = this.world;
     this.hud.status.textContent = w.player.alive
@@ -195,6 +235,40 @@ export class PlayScene implements Scene {
     this.label.textContent =
       `${fps} FPS | ${this.renderer.stats.drawCalls} draws | ` +
       `${visible}/${this.chunks.length} chunks`;
+  }
+
+  private setPaused(paused: boolean): void {
+    this.paused = paused;
+    if (paused) this.menus.showPause();
+    else this.menus.hide();
+  }
+
+  private updateObjective(): void {
+    const objective = this.world.objective;
+    this.objectiveLabel.hidden = objective === null;
+    if (objective) this.objectiveLabel.textContent = objective.text;
+    if (this.toastTimer > 0) {
+      this.toastTimer -= 1 / 60;
+      if (this.toastTimer <= 0) this.toastLabel.hidden = true;
+    }
+  }
+
+  private updateMinimap(frameSeconds: number): void {
+    this.minimapTimer -= frameSeconds;
+    if (this.minimapTimer > 0) return;
+    this.minimapTimer = 0.1;
+    const player = this.world.player;
+    const blips: MinimapBlip[] = [];
+    for (const start of this.world.availableMissionStarts)
+      blips.push({ x: start.x, z: start.z, color: '#ffd23f' });
+    const objective = this.world.objective;
+    if (objective) blips.push({ x: objective.x, z: objective.z, color: '#ff7a1a' });
+    for (const unit of this.world.police)
+      blips.push({ x: unit.car.position.x, z: unit.car.position.z, color: '#4da3ff' });
+    drawMinimap(this.minimapContext, this.world.layout, {
+      player: { x: player.position.x, z: player.position.z, heading: this.camera.yaw },
+      blips,
+    });
   }
 
   private drawPedestrians(alpha: number): void {

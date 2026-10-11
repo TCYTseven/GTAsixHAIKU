@@ -24,6 +24,14 @@ import type { RoadEdge } from '../world/road-graph';
 import { SolidSet } from '../world/solids';
 import type { GameEvents } from './events';
 import { WantedState, POLICE_BY_LEVEL } from '../systems/wanted';
+import {
+  advanceMission,
+  currentObjective,
+  type ActiveMission,
+  type ResolvedStep,
+} from '../systems/missions';
+import type { MissionConfig } from '../data/schemas';
+const START_RANGE = 3;
 import { stepPolice, type PoliceUnit } from '../systems/police';
 import { fireHitscan, meleeTargets } from '../systems/combat';
 
@@ -85,6 +93,8 @@ export class World {
   readonly pickups: Pickup[] = [];
   readonly hospital: Vec3;
   readonly wanted = new WantedState();
+  readonly missionsDone = new Set<string>();
+  activeMission: ActiveMission | null = null;
   readonly police: PoliceUnit[] = [];
   private readonly lastSeen = new Vec3();
   private policeSpawnTimer = 0;
@@ -125,6 +135,10 @@ export class World {
       ) ?? this.layout.blocks[0];
     this.hospital = perimeterPoint(hospitalBlock.walkway, 0, new Vec3());
     this.lastSeen.copy(spawn);
+    this.events.on('pedestrianKilled', () => {
+      const step = currentObjective(this.activeMission);
+      if (this.activeMission && step?.kind === 'eliminate') this.activeMission.kills += 1;
+    });
     this.events.on('pedestrianKilled', ({ cause }) => {
       if (cause !== 'vehicle' || this.player.vehicle) this.wanted.add(2);
     });
@@ -149,7 +163,7 @@ export class World {
     for (const vehicle of this.vehicles) {
       vehicle.beginStep();
     }
-    if (controls.interact && this.player.alive) {
+    if (controls.interact && this.player.alive && !this.tryStartMission()) {
       this.toggleVehicle();
     }
 
@@ -169,6 +183,7 @@ export class World {
     this.updatePedestrians(dt);
     this.updateCombat(controls, dt);
     this.updatePolice(dt);
+    this.updateMissions();
 
     const driven = this.player.vehicle;
     this.solids.setMoving(this.vehicles.filter((v) => v !== driven).map((v) => v.bounds()));
@@ -192,6 +207,80 @@ export class World {
     this.publishImpacts();
     this.updateSurvival(dt);
     this.maintainPopulation(dt);
+  }
+
+  /** Corner of a block's sidewalk loop, in world coordinates. */
+  resolveMarker(marker: MissionConfig['start']): { x: number; z: number } {
+    const block =
+      this.layout.blocks.find((b) => b.col === marker.block[0] && b.row === marker.block[1]) ??
+      this.layout.blocks[0];
+    const w = block.walkway;
+    const east = marker.corner === 'ne' || marker.corner === 'se';
+    const north = marker.corner === 'nw' || marker.corner === 'ne';
+    return { x: east ? w.maxX : w.minX, z: north ? w.maxZ : w.minZ };
+  }
+
+  /** Missions not yet finished, with their start points, for the minimap. */
+  get availableMissionStarts(): { x: number; z: number }[] {
+    if (this.activeMission) return [];
+    return this.config.missions.missions
+      .filter((m) => !this.missionsDone.has(m.id))
+      .map((m) => this.resolveMarker(m.start));
+  }
+
+  /** The instruction the player should follow right now, or null. */
+  get objective(): ResolvedStep | null {
+    return currentObjective(this.activeMission);
+  }
+
+  /** Starts the first unfinished mission whose start point is in reach. Returns true if one started. */
+  private tryStartMission(): boolean {
+    if (this.activeMission || this.player.vehicle) return false;
+    for (const mission of this.config.missions.missions) {
+      if (this.missionsDone.has(mission.id)) continue;
+      const start = this.resolveMarker(mission.start);
+      if (
+        Math.hypot(start.x - this.player.position.x, start.z - this.player.position.z) > START_RANGE
+      )
+        continue;
+      this.activeMission = {
+        id: mission.id,
+        title: mission.title,
+        reward: mission.reward,
+        steps: mission.steps.map((step) => {
+          if (step.type === 'eliminate')
+            return { kind: 'eliminate', text: step.text, x: 0, z: 0, radius: 0, count: step.count };
+          const at = this.resolveMarker(step.marker);
+          return {
+            kind: step.type,
+            text: step.text,
+            x: at.x,
+            z: at.z,
+            radius: step.radius,
+            count: 0,
+          };
+        }),
+        index: 0,
+        kills: 0,
+      };
+      return true;
+    }
+    return false;
+  }
+
+  private updateMissions(): void {
+    const mission = this.activeMission;
+    if (!mission || !this.player.alive) return;
+    const done = advanceMission(mission, {
+      x: this.player.position.x,
+      z: this.player.position.z,
+      inCar: this.player.vehicle !== null,
+    });
+    if (!done) return;
+    this.cash += mission.reward;
+    this.missionsDone.add(mission.id);
+    this.activeMission = null;
+    this.events.emit('missionCompleted', { title: mission.title, reward: mission.reward });
   }
 
   private isPolice(car: Vehicle): boolean {
@@ -462,6 +551,7 @@ export class World {
     player.health = FULL_HEALTH;
     player.alive = true;
     this.wanted.clear();
+    this.activeMission = null;
     this.events.emit('playerRespawned', {});
   }
 
