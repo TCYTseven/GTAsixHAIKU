@@ -133,3 +133,27 @@ export const PopulationConfigSchema = z
   });
 
 export type PopulationConfig = z.infer<typeof PopulationConfigSchema>;
+
+export const WeaponsConfigSchema = z.object({
+  melee: z.object({
+    range: z.number().positive().max(4),
+    coneDegrees: z.number().positive().max(180),
+    damage: z.number().positive(),
+    cooldown: z.number().positive(),
+  }),
+  pistol: z.object({
+    damage: z.number().positive(),
+    /** Damage falls to half at this distance and stays there beyond it. */
+    maxRange: z.number().positive(),
+    fireRate: z.number().positive(),
+    magazine: z.number().int().positive(),
+    reserveAmmo: z.number().int().nonnegative(),
+    reloadTime: z.number().positive(),
+  }),
+  startingCash: z.number().nonnegative(),
+  /** Share of cash lost on death. */
+  deathCashPenalty: z.number().min(0).max(1),
+  respawnDelay: z.number().positive(),
+});
+
+export type WeaponsConfig = z.infer<typeof WeaponsConfigSchema>;

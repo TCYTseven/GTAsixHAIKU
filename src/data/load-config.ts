@@ -7,18 +7,22 @@ import {
   PlayerConfigSchema,
   PopulationConfigSchema,
   VehiclesConfigSchema,
+  WeaponsConfigSchema,
   type CityConfig,
   type PlayerConfig,
   type PopulationConfig,
   type VehiclesConfig,
+  type WeaponsConfig,
 } from './schemas';
 import { DEFAULT_VEHICLES_CONFIG } from './vehicles.config';
+import { DEFAULT_WEAPONS_CONFIG } from './weapons.config';
 
 export interface GameConfig {
   readonly city: CityConfig;
   readonly player: PlayerConfig;
   readonly vehicles: VehiclesConfig;
   readonly population: PopulationConfig;
+  readonly weapons: WeaponsConfig;
 }
 
 /** Thrown when configuration fails validation. The message lists every problem found. */
@@ -40,6 +44,7 @@ export function loadGameConfig(): GameConfig {
       PopulationConfigSchema,
       DEFAULT_POPULATION_CONFIG,
     ),
+    weapons: parseConfig('weapons.config.ts', WeaponsConfigSchema, DEFAULT_WEAPONS_CONFIG),
   };
 }
 

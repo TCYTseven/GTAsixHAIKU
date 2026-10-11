@@ -23,6 +23,10 @@ export class Vec3 {
     return this.set(v.x, v.y, v.z);
   }
 
+  toTuple(): [number, number, number] {
+    return [this.x, this.y, this.z];
+  }
+
   clone(): Vec3 {
     return new Vec3(this.x, this.y, this.z);
   }

@@ -11,6 +11,14 @@ export interface ControlState {
   readonly handbrake: boolean;
   /** True on the fixed step where the interact key was pressed: enter or leave a vehicle. */
   readonly interact: boolean;
+  /** True while the fire button is held. */
+  readonly fire: boolean;
+  /** True on the fixed step where melee was pressed. */
+  readonly melee: boolean;
+  /** True on the fixed step where reload was pressed. */
+  readonly reload: boolean;
+  /** Unit direction the camera looks along. Shots travel this way. */
+  readonly aim: readonly [number, number, number];
   /** Camera yaw in radians. On-foot movement is relative to it. */
   readonly cameraYaw: number;
 }
