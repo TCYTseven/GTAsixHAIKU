@@ -7,14 +7,14 @@ import { createMat4, mat4FromTransform } from '../math/mat4';
 import { Vec3 } from '../math/vec3';
 import { Camera } from '../render/camera';
 import { type Rgb } from '../render/color';
-import { createWebGL2Context } from '../render/gl-context';
 import { DEFAULT_ENVIRONMENT } from '../render/environment';
+import { createWebGL2Context } from '../render/gl-context';
 import { Mesh } from '../render/mesh';
 import { MeshBuilder, type MeshData } from '../render/mesh-builder';
 import { Renderer } from '../render/renderer';
+import { applyMouseLook, stepFreeFly } from './free-fly';
 
 const MOVE_SPEED = 12;
-const BOOST_MULTIPLIER = 3;
 const LOOK_RADIANS_PER_PIXEL = 0.0022;
 const SANDBOX_SEED = 1977;
 
@@ -28,9 +28,8 @@ const PALETTE: readonly Rgb[] = [
 ];
 
 /**
- * M1 sandbox: a field of lit colored boxes, ramps, and columns under the sky and fog, with a
- * free-fly camera. WASD moves, Space and Ctrl rise and fall, Shift boosts, and mouse look needs a
- * click on the canvas to capture the pointer.
+ * Test field for the renderer and camera: lit colored boxes, ramps, and columns under the sky and
+ * fog. Open it with `?scene=sandbox`. It is not part of normal play.
  */
 export class SandboxScene implements Scene {
   private readonly gl: WebGL2RenderingContext;
@@ -41,8 +40,6 @@ export class SandboxScene implements Scene {
   private readonly ground: Mesh;
   private readonly props: Mesh;
   private readonly identity = mat4FromTransform(createMat4(), 0, 0, 0, 0);
-  private readonly scratchForward = new Vec3();
-  private readonly scratchRight = new Vec3();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -66,32 +63,12 @@ export class SandboxScene implements Scene {
   }
 
   fixedUpdate(dt: number): void {
-    this.camera.beginStep();
-    const forward = this.camera.flatForward(this.scratchForward);
-    const right = this.camera.flatRight(this.scratchRight);
-
-    let along = 0;
-    let across = 0;
-    let lift = 0;
-    if (this.input.isHeld('KeyW')) along += 1;
-    if (this.input.isHeld('KeyS')) along -= 1;
-    if (this.input.isHeld('KeyD')) across += 1;
-    if (this.input.isHeld('KeyA')) across -= 1;
-    if (this.input.isHeld('Space')) lift += 1;
-    if (this.input.isHeld('ControlLeft')) lift -= 1;
-
-    const boost = this.input.isHeld('ShiftLeft') ? BOOST_MULTIPLIER : 1;
-    const step = MOVE_SPEED * boost * dt;
-    const position = this.camera.position;
-    position.addScaled(forward, along * step);
-    position.addScaled(right, across * step);
-    position.y += lift * step;
+    stepFreeFly(this.camera, this.input, dt, MOVE_SPEED);
   }
 
   render(alpha: number, frameSeconds: number): void {
     fitCanvasToDisplay(this.canvas);
-    const look = this.input.takeMouseDelta();
-    this.camera.addLook(-look.x * LOOK_RADIANS_PER_PIXEL, -look.y * LOOK_RADIANS_PER_PIXEL);
+    applyMouseLook(this.camera, this.input, LOOK_RADIANS_PER_PIXEL);
     this.camera.updateMatrices(alpha, this.canvas.width / this.canvas.height);
 
     this.renderer.beginFrame(this.camera, DEFAULT_ENVIRONMENT);

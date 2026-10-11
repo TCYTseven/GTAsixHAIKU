@@ -33,3 +33,17 @@ body {
     monospace;
   pointer-events: none;
 }
+
+#fatal-error {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  padding: 24px;
+  overflow: auto;
+  color: #ffb4a8;
+  background: #0b0f14;
+  font:
+    14px/1.5 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+}
