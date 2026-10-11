@@ -2,6 +2,44 @@
 
 Notable changes, one section per milestone in [BUILD_PLAN.md](BUILD_PLAN.md). Each milestone is tagged in git (`m0-scaffold`, `m1-renderer`, and so on).
 
+## M9: Polish
+
+- Synthesized sound effects with the Web Audio API, so no audio files are shipped. Engine pitch follows speed, and there are gunshots, impacts, and a siren while the player has a wanted level. Audio starts on the Start click, as browsers require.
+- Headless soak test: random play for a few simulated minutes, checking for non-finite values, runaway car speeds, and bodies inside buildings. `SOAK_MINUTES=30 npm test` runs the full 30-minute version, which passes.
+- Not done: a day and night cycle, an F3 profiling overlay, tracer and pickup visuals, and a separate police config file. Police tuning is currently in code.
+- Performance has not been measured on target hardware. Headless software rendering runs at about 10 to 17 FPS, which says nothing about a real GPU.
+
+## M8: Missions and HUD
+
+- Data-driven missions in `missions.config.ts`: Harbor Run, Clean Up, and Lights Out. Each step is reach a point, drive to a point, or eliminate targets.
+- Mission markers are blocks on the walkways. Press F near a marker on foot to start.
+- Objective line at the top of the screen, a toast when a mission completes, and a rotating minimap in the top right.
+- Title and pause menus. Esc pauses and resumes.
+
+## M7: Wanted and police
+
+- Wanted level from heat points, with five thresholds mapped to stars. Heat decays once the player has been out of sight for a while.
+- Police cars scale with the wanted level. They patrol, search the last known spot, or pursue. A car stuck for more than 3 seconds is moved to the nearest intersection.
+- Stars appear in the status line.
+
+## M6: Combat and death
+
+- Melee cone in front of the player and a hitscan pistol with distance falloff, tested against the world, pedestrians, and cars.
+- Reload from a magazine and reserve. Cash pickups are scattered on the walkways and collected by walking over them.
+- Death sends the player to the hospital with a respawn. Tests cover the death and respawn cycle.
+
+## M5: NPCs and traffic
+
+- Pedestrians walk along walkways and flee from fast cars nearby.
+- Traffic follows lanes with pure-pursuit steering, keeps a gap from the car ahead, obeys signals that alternate by axis every 12 seconds, and makes random turns at intersections.
+- Population spawns and despawns outside the player's view, within a distance band around the player.
+
+## M4: Vehicles
+
+- Arcade car model with yaw from steering and speed, a handbrake that reduces grip, and drag with a quadratic engine taper.
+- Cars collide with buildings and each other through oriented-box separation tests, with a small bounce. Impacts above a closing speed of 6 m/s cause damage.
+- Enter and leave with F. A chase camera follows the car and swings back behind it when the mouse is still.
+
 ## M3: On-foot movement
 
 - Box-shaped body physics: X then Z motion, step-up onto ledges up to 0.4 m when grounded, gravity, and a ground probe that snaps the body onto support within the step height.
